@@ -4,6 +4,7 @@ import { useState } from "react";
 import { config, isDay, nextTurn, startState } from "./gameLogic";
 import type { Action, Dest, GameState } from "./gameLogic";
 import Astronaut from "./Astronaut";
+import HoustonCall from "./HoustonCall";
 
 const destinations = {
   moon: {
@@ -53,7 +54,7 @@ function Meter({ label, value }: { label: string; value: number }) {
 }
 
 export default function Home() {
-  const [screen, setScreen] = useState<"title" | "name" | "game">("title");
+  const [screen, setScreen] = useState<"title" | "name" | "call" | "game">("title");
   const [dest, setDest] = useState<Dest>("moon");
   const [name, setName] = useState("");
   const [game, setGame] = useState<GameState>(startState());
@@ -71,7 +72,7 @@ export default function Home() {
   function begin() {
     if (!cleanName) return;
     setGame(startState());
-    setScreen("game");
+    setScreen("call");
   }
   function play(a: Action) {
     setGame((g) => nextTurn(dest, g, a));
@@ -97,6 +98,10 @@ export default function Home() {
 
   return (
     <main className={`cockpit ${dest} ${night ? "night" : ""}`}>
+      {screen === "call" && (
+        <HoustonCall name={cleanName} dest={dest} onDone={() => setScreen("game")} />
+      )}
+
       <header className="roof">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
@@ -132,7 +137,6 @@ export default function Home() {
           ))}
           <div className="view-overlay" />
           <div className="night-tint" />
-          {inGame && <div className="celestial">{day ? "☀️" : "🌙"}</div>}
           {inGame && <div className="celestial">{day ? "☀️" : "🌙"}</div>}
           {inGame && <Astronaut name={cleanName} />}
 
