@@ -5,33 +5,9 @@ import { config, isDay, nextTurn, startState } from "./gameLogic";
 import type { Action, Dest, GameState } from "./gameLogic";
 import Astronaut from "./Astronaut";
 import HoustonCall from "./HoustonCall";
+import HomeHud from "./HomeHud";
+import { destinations } from "./destinations";
 
-const destinations = {
-  moon: {
-    name: "Moon",
-    video: "/moon.mp4",
-    blurb: "Nights last 14 Earth days. Your solar panels go dark. Can you keep the lights on?",
-    stats: [
-      ["GRAVITY", "0.17 g"],
-      ["DAY LENGTH", "29.5 Earth days"],
-      ["SUNLIGHT", "14 days on, 14 off"],
-      ["BIG RISK", "Freezing nights"],
-    ],
-    gauges: [["POWER", 85], ["RADIATION", 70], ["SUPPLY TRIPS", 40]],
-  },
-  mars: {
-    name: "Mars",
-    video: "/mars.mp4",
-    blurb: "Dust storms block the sun. Resupply is months away. Plan carefully.",
-    stats: [
-      ["GRAVITY", "0.38 g"],
-      ["DAY LENGTH", "24 h 37 min"],
-      ["SUNLIGHT", "~43% of Earth"],
-      ["BIG RISK", "Dust storms"],
-    ],
-    gauges: [["POWER", 60], ["RADIATION", 75], ["SUPPLY TRIPS", 95]],
-  },
-} as const;
 
 const actions: { id: Action; icon: string; label: string; desc: string }[] = [
   { id: "greenhouse", icon: "🌱", label: "Run greenhouse", desc: "+food, +oxygen, uses power" },
@@ -96,6 +72,22 @@ export default function Home() {
     return `All systems steady, ${cleanName}. What's your next move?`;
   }
 
+  // Homepage (title + name screens) uses the new spaceship HUD layout.
+  // The Houston call and the game itself still use the cockpit below.
+  if (screen === "title" || screen === "name") {
+    return (
+      <HomeHud
+        screen={screen}
+        dest={dest}
+        setDest={setDest}
+        name={name}
+        setName={setName}
+        onLaunch={() => setScreen("name")}
+        onBegin={begin}
+      />
+    );
+  }
+
   return (
     <main className={`cockpit ${dest} ${night ? "night" : ""}`}>
       {screen === "call" && (
@@ -141,35 +133,6 @@ export default function Home() {
           {inGame && <Astronaut name={cleanName} />}
 
           <div className="view-content">
-            {screen === "title" && (
-              <>
-                <h1 className="title">Junior Astronaut Mission Trainer</h1>
-                <p className="subtitle">
-                  Run a lunar or Martian outpost. Balance power, oxygen, and food
-                  through every day and night.
-                </p>
-                <p className="blurb">{d.blurb}</p>
-              </>
-            )}
-
-            {screen === "name" && (
-              <>
-                <h1 className="title small">Welcome aboard!</h1>
-                <p className="subtitle">What should Mission Control call you, astronaut?</p>
-                <input
-                  className="name-input"
-                  value={name}
-                  onChange={(e) => setName(e.target.value.slice(0, 16))}
-                  onKeyDown={(e) => e.key === "Enter" && begin()}
-                  placeholder="Your name"
-                  autoFocus
-                />
-                <button className="launch" onClick={begin} disabled={!cleanName}>
-                  BEGIN TRAINING
-                </button>
-              </>
-            )}
-
             {screen === "game" && (
               <>
                 <div className="hud">
@@ -235,11 +198,6 @@ export default function Home() {
                 </button>
               ))}
             </div>
-            {screen === "title" && (
-              <button className="launch" onClick={() => setScreen("name")}>
-                LAUNCH MISSION
-              </button>
-            )}
           </div>
 
           <div className="monitor">
