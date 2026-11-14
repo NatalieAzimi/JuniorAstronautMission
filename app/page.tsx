@@ -4,14 +4,28 @@ import { useState } from "react";
 
 const destinations = {
   moon: {
-    name: "The Moon",
-    blurb: "14-day nights. Your solar panels go dark. Can you keep the lights on?",
-    planetClass: "planet moon",
+    name: "Moon",
+    video: "/moon.mp4",
+    blurb: "Nights last 14 Earth days. Your solar panels go dark. Can you keep the lights on?",
+    stats: [
+      ["GRAVITY", "0.17 g"],
+      ["DAY LENGTH", "29.5 Earth days"],
+      ["SUNLIGHT", "14 days on, 14 off"],
+      ["BIG RISK", "Freezing nights"],
+    ],
+    gauges: [["POWER", 85], ["RADIATION", 70], ["SUPPLY TRIPS", 40]],
   },
   mars: {
     name: "Mars",
-    blurb: "Dust storms and thin air. Resupply is months away. Plan carefully.",
-    planetClass: "planet mars",
+    video: "/mars.mp4",
+    blurb: "Dust storms block the sun. Resupply is months away. Plan carefully.",
+    stats: [
+      ["GRAVITY", "0.38 g"],
+      ["DAY LENGTH", "24 h 37 min"],
+      ["SUNLIGHT", "~43% of Earth"],
+      ["BIG RISK", "Dust storms"],
+    ],
+    gauges: [["POWER", 60], ["RADIATION", 75], ["SUPPLY TRIPS", 95]],
   },
 } as const;
 
@@ -20,14 +34,11 @@ type Dest = keyof typeof destinations;
 export default function Home() {
   const [dest, setDest] = useState<Dest>("moon");
   const d = destinations[dest];
+  const keys = Object.keys(destinations) as Dest[];
 
   return (
-    <main className="space-bg">
-      <div className="stars" />
-      <div className="stars twinkle" />
-      <div className="shooting-star" />
-
-      <header className="top-bar">
+    <main className={`cockpit ${dest}`}>
+      <header className="roof">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src="/nasa-logo.png"
@@ -35,39 +46,88 @@ export default function Home() {
           className="nasa-logo"
           onError={(e) => (e.currentTarget.style.display = "none")}
         />
-        <span className="badge">STEM Mission Trainer</span>
+        <div className="skylight">
+          <span>MISSION CONTROL</span>
+          <span className="dot" />
+          <span>STEM TRAINER</span>
+        </div>
+        <div className="lights">
+          <i /><i /><i />
+        </div>
       </header>
 
-      <section className="hero">
-        <div className="planet-wrap">
-          <div className="orbit">
-            <span className="rocket">🚀</span>
+      <section className="windows">
+        <div className="pane" />
+        <div className="view">
+          {keys.map((key) => (
+            <video
+              key={key}
+              className={`bg-video ${dest === key ? "show" : ""}`}
+              src={destinations[key].video}
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="auto"
+            />
+          ))}
+          <div className="view-overlay" />
+          <div className="view-content">
+            <h1 className="title">Junior Astronaut Mission Trainer</h1>
+            <p className="subtitle">
+              Run a lunar or Martian outpost. Balance power, oxygen, food, and
+              radiation for 30 sols.
+            </p>
+            <p className="blurb">{d.blurb}</p>
           </div>
-          <div className={d.planetClass} />
+        </div>
+        <div className="pane" />
+      </section>
+
+      <section className="console">
+        <div className="monitor">
+          <p>&gt; DESTINATION: {d.name.toUpperCase()}</p>
+          {d.stats.map(([label, value]) => (
+            <p key={label}>
+              {label}: <b>{value}</b>
+            </p>
+          ))}
+          <p className="cursor">&gt; </p>
         </div>
 
-        <h1 className="title">Junior Astronaut Mission Trainer</h1>
-        <p className="subtitle">
-          Run a lunar or Martian outpost. Balance power, oxygen, food, and
-          radiation for 30 sols.
-        </p>
+        <div className="controls">
+          <p className="label">CHOOSE DESTINATION</p>
+          <div className="keys">
+            {keys.map((key) => (
+              <button
+                key={key}
+                onClick={() => setDest(key)}
+                className={`key ${key}-key ${dest === key ? "active" : ""}`}
+              >
+                {destinations[key].name}
+              </button>
+            ))}
+          </div>
+          <button className="launch">LAUNCH MISSION</button>
+        </div>
 
-        <div className="choices">
-          {(Object.keys(destinations) as Dest[]).map((key) => (
-            <button
-              key={key}
-              onClick={() => setDest(key)}
-              className={`choice ${dest === key ? "active" : ""}`}
-            >
-              {destinations[key].name}
-            </button>
+        <div className="monitor">
+          <p>&gt; CHALLENGE METER</p>
+          {d.gauges.map(([label, value]) => (
+            <div key={label} className="gauge">
+              <div className="gauge-label">
+                <span>{label}</span>
+                <span>{value}%</span>
+              </div>
+              <div className="track">
+                <div className="fill" style={{ width: `${value}%` }} />
+              </div>
+            </div>
           ))}
         </div>
-
-        <p className="blurb">{d.blurb}</p>
-
-        <button className="launch">Launch Mission</button>
       </section>
+
+      <footer className="credit">Video: NASA</footer>
     </main>
   );
 }
