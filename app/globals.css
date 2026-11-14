@@ -216,4 +216,177 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; }
+}/* ===== Day / night ===== */
+.bg-video { transition: opacity 0.8s ease, filter 1.2s ease; }
+.cockpit.night .bg-video { filter: brightness(0.4) saturate(0.75); }
+.cockpit.night {
+  background: radial-gradient(ellipse at 50% 30%, #1d1450 0%, #0c0a2e 55%, #05041a 100%);
+}
+.night-tint {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: rgba(8, 10, 60, 0.6);
+  opacity: 0;
+  transition: opacity 1.2s ease;
+}
+.cockpit.night .night-tint { opacity: 1; }
+
+.celestial {
+  position: absolute;
+  top: 1rem;
+  right: 1.4rem;
+  z-index: 3;
+  font-size: 2.6rem;
+  filter: drop-shadow(0 0 18px var(--glow));
+  animation: float 5s ease-in-out infinite;
+}
+@keyframes float { 50% { transform: translateY(6px); } }
+
+/* ===== Name screen ===== */
+.title.small { font-size: clamp(1.8rem, 4.5vw, 3rem); }
+.name-input {
+  width: min(320px, 90%);
+  padding: 0.8rem 1.2rem;
+  border: 4px solid #e9936a;
+  border-radius: 999px;
+  background: rgba(13, 16, 80, 0.85);
+  color: #fff;
+  font-size: 1.2rem;
+  text-align: center;
+  outline: none;
+}
+.name-input:focus { box-shadow: 0 0 22px var(--glow); }
+.name-input::placeholder { color: #8f9de0; }
+.launch:disabled { opacity: 0.45; cursor: not-allowed; animation: none; }
+
+/* ===== Game HUD ===== */
+.hud { display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: center; }
+.phase {
+  padding: 0.35rem 1rem;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  background: rgba(0, 0, 0, 0.35);
+}
+.phase.day { border-color: #ffc94d; color: #ffe08a; }
+.phase.nite { border-color: #8f9de0; color: #c7d0ff; }
+.commander { font-size: clamp(1.6rem, 4vw, 2.6rem); font-weight: 800; }
+.hint {
+  max-width: 34rem;
+  padding: 0.7rem 1.2rem;
+  border-radius: 14px;
+  background: rgba(13, 16, 80, 0.7);
+  color: #dfe6ff;
+}
+.note { max-width: 34rem; font-size: 0.75rem; color: rgba(255, 255, 255, 0.65); }
+
+.end-card {
+  max-width: 34rem;
+  padding: 1.2rem 1.5rem;
+  border: 4px solid #ffe08a;
+  border-radius: 18px;
+  background: rgba(20, 8, 40, 0.88);
+}
+.end-card h2 { font-size: 1.5rem; font-weight: 800; margin-bottom: 0.4rem; }
+.end-buttons { display: flex; gap: 0.8rem; justify-content: center; margin-top: 0.9rem; flex-wrap: wrap; }
+
+/* ===== Action buttons ===== */
+.actions { display: flex; flex-direction: column; gap: 0.6rem; width: 100%; }
+.act {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.7rem 1rem;
+  border: none;
+  border-bottom: 5px solid rgba(0, 0, 0, 0.35);
+  border-radius: 12px;
+  text-align: left;
+  color: #1a1040;
+  background: #ffb15c;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.act:nth-child(2) { background: #9b8cf0; }
+.act:nth-child(3) { background: #7fd6c2; }
+.act small { font-size: 0.72rem; opacity: 0.8; }
+.act:hover:not(:disabled) { transform: translateY(2px); border-bottom-width: 3px; }
+.act:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ===== Meters, report, timeline ===== */
+.fill.low { background: #ff4d5a; }
+.log { color: #dfe6ff; font-size: 0.78rem; line-height: 1.5; min-height: 4.2rem; }
+.timeline { display: flex; gap: 3px; margin-top: 0.6rem; }
+.tick { flex: 1; height: 12px; border-radius: 3px; opacity: 0.35; }
+.tick.d { background: #ffc94d; }
+.tick.n { background: #5b6fe0; }
+.tick.past { opacity: 0.15; }
+.tick.now { opacity: 1; outline: 2px solid #fff; transform: scaleY(1.5); }
+
+/* ===== Walking astronaut ===== */
+.astro-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+.astro {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform-origin: 50% 100%;
+}
+.astro-img {
+  display: block;
+  width: 144px;
+  height: auto;
+  image-rendering: pixelated;
+  user-select: none;
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.25));
+}
+.astro-flip { display: block; }
+.astro-flip.flip { transform: scaleX(-1); }
+.astro-img.walking { animation: walk-bob 0.35s ease-in-out infinite; }
+@keyframes walk-bob {
+  0%, 100% { transform: translateY(0) rotate(-1.5deg); }
+  50% { transform: translateY(-7px) rotate(1.5deg); }
+}
+.astro-shadow {
+  position: absolute;
+  bottom: 2px;
+  width: 70px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  filter: blur(3px);
+  z-index: -1;
+}
+.astro-name {
+  margin-bottom: 2px;
+  padding: 0.1rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  background: rgba(13, 16, 80, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  white-space: nowrap;
+}
+.move-tip {
+  position: absolute;
+  left: 1rem;
+  bottom: 0.7rem;
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.7);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+.cockpit.night .astro-img { filter: brightness(0.85) drop-shadow(0 0 12px rgba(160, 180, 255, 0.5)); }
+
+@media (max-width: 800px) {
+  .astro-img { width: 96px; }
+  .astro-shadow { width: 46px; }
 }
