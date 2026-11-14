@@ -1,33 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { config, isDay, nextTurn, startState } from "./gameLogic";
-import type { Action, Dest, GameState } from "./gameLogic";
-import Astronaut from "./Astronaut";
+import { startState } from "./gameLogic";
+import type { Dest, GameState } from "./gameLogic";
 import HoustonCall from "./HoustonCall";
 import HomeHud from "./HomeHud";
-import { destinations } from "./destinations";
-
-
-const actions: { id: Action; icon: string; label: string; desc: string }[] = [
-  { id: "greenhouse", icon: "🌱", label: "Run greenhouse", desc: "+food, +oxygen, uses power" },
-  { id: "conserve", icon: "🔋", label: "Conserve power", desc: "saves energy, food and air drop" },
-  { id: "recycle", icon: "💨", label: "Recycle air", desc: "+oxygen, uses power" },
-];
-
-function Meter({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="gauge">
-      <div className="gauge-label">
-        <span>{label}</span>
-        <span>{value}%</span>
-      </div>
-      <div className="track">
-        <div className={`fill ${value < 30 ? "low" : ""}`} style={{ width: `${value}%` }} />
-      </div>
-    </div>
-  );
-}
+import GameScreen from "./GameScreen";
 
 export default function Home() {
   const [screen, setScreen] = useState<"title" | "name" | "call" | "game">("title");
@@ -35,23 +13,12 @@ export default function Home() {
   const [name, setName] = useState("");
   const [game, setGame] = useState<GameState>(startState());
 
-  const d = destinations[dest];
-  const cfg = config[dest];
-  const keys = Object.keys(destinations) as Dest[];
   const cleanName = name.trim();
-
-  const inGame = screen === "game";
-  const day = isDay(dest, game.turn);
-  const night = inGame && !day;
-  const ended = game.status !== "playing";
 
   function begin() {
     if (!cleanName) return;
     setGame(startState());
     setScreen("call");
-  }
-  function play(a: Action) {
-    setGame((g) => nextTurn(dest, g, a));
   }
   function retry() {
     setGame(startState());
@@ -61,19 +28,7 @@ export default function Home() {
     setScreen("title");
   }
 
-  function hint(): string {
-    const nextIsNight = !isDay(dest, game.turn + 1);
-    if (!day && game.power < 30) return `${cleanName}, power is low and the panels are dark. Conserve energy!`;
-    if (game.oxygen < 30) return `${cleanName}, oxygen is low. Recycle the air!`;
-    if (game.food < 30) return `${cleanName}, food is running low. Run the greenhouse!`;
-    if (day && nextIsNight) return `Night is coming, ${cleanName}. Make sure the batteries are charged.`;
-    if (day && game.power < 60) return `The sun is up, ${cleanName}. A good time to recharge.`;
-    if (!day) return `It's night. The solar panels are dark, so watch your batteries.`;
-    return `All systems steady, ${cleanName}. What's your next move?`;
-  }
-
-  // Homepage (title + name screens) uses the new spaceship HUD layout.
-  // The Houston call and the game itself still use the cockpit below.
+  // Homepage (title + name screens): spaceship HUD
   if (screen === "title" || screen === "name") {
     return (
       <HomeHud
@@ -88,176 +43,21 @@ export default function Home() {
     );
   }
 
+  // Houston call plays over the top-down outpost, then the game starts
   return (
-    <main className={`cockpit ${dest} ${night ? "night" : ""}`}>
+    <>
+      <GameScreen
+        dest={dest}
+        name={cleanName}
+        game={game}
+        setGame={setGame}
+        paused={screen === "call"}
+        onRetry={retry}
+        onBack={backToTitle}
+      />
       {screen === "call" && (
         <HoustonCall name={cleanName} dest={dest} onDone={() => setScreen("game")} />
       )}
-
-      <header className="roof">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/nasa-logo.png"
-          alt="NASA logo"
-          className="nasa-logo"
-          onError={(e) => (e.currentTarget.style.display = "none")}
-        />
-        <div className="skylight">
-          <span>MISSION CONTROL</span>
-          <span className="dot" />
-          <span>STEM TRAINER</span>
-        </div>
-        <div className="lights">
-          <i /><i /><i />
-        </div>
-      </header>
-
-      <section className="windows">
-        <div className="pane" />
-        <div className="view">
-          {keys.map((key) => (
-            <video
-              key={key}
-              className={`bg-video ${dest === key ? "show" : ""}`}
-              src={destinations[key].video}
-              autoPlay
-              muted
-              loop
-              playsInline
-              preload="auto"
-            />
-          ))}
-          <div className="view-overlay" />
-          <div className="night-tint" />
-          {inGame && <div className="celestial">{day ? "☀️" : "🌙"}</div>}
-          {inGame && <Astronaut name={cleanName} />}
-
-          <div className="view-content">
-            {screen === "game" && (
-              <>
-                <div className="hud">
-                  <span className={`phase ${day ? "day" : "nite"}`}>
-                    {day ? "☀️ DAY" : "🌙 NIGHT"}
-                  </span>
-                  <span className="phase">
-                    TURN {Math.min(game.turn, cfg.totalTurns)} / {cfg.totalTurns}
-                  </span>
-                </div>
-                <h2 className="commander">Commander {cleanName}</h2>
-
-                {!ended ? (
-                  <p className="hint">📡 Mission Control: {hint()}</p>
-                ) : (
-                  <div className="end-card">
-                    <h2>
-                      {game.status === "won"
-                        ? `Mission complete, Commander ${cleanName}! 🎉`
-                        : "Mission failed"}
-                    </h2>
-                    <p>
-                      {game.status === "won"
-                        ? `Your crew survived all ${cfg.totalTurns} turns on the ${cfg.name}.`
-                        : game.lossReason}
-                    </p>
-                    <div className="end-buttons">
-                      <button className="key mars-key" onClick={retry}>Try again</button>
-                      <button className="key moon-key" onClick={backToTitle}>Change destination</button>
-                    </div>
-                  </div>
-                )}
-                <p className="note">{cfg.note}</p>
-              </>
-            )}
-          </div>
-        </div>
-        <div className="pane" />
-      </section>
-
-      {!inGame ? (
-        <section className="console">
-          <div className="monitor">
-            <p>&gt; DESTINATION: {d.name.toUpperCase()}</p>
-            {d.stats.map(([label, value]) => (
-              <p key={label}>
-                {label}: <b>{value}</b>
-              </p>
-            ))}
-            <p className="cursor">&gt; </p>
-          </div>
-
-          <div className="controls">
-            <p className="label">CHOOSE DESTINATION</p>
-            <div className="keys">
-              {keys.map((key) => (
-                <button
-                  key={key}
-                  onClick={() => setDest(key)}
-                  className={`key ${key}-key ${dest === key ? "active" : ""}`}
-                >
-                  {destinations[key].name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="monitor">
-            <p>&gt; CHALLENGE METER</p>
-            {d.gauges.map(([label, value]) => (
-              <div key={label} className="gauge">
-                <div className="gauge-label">
-                  <span>{label}</span>
-                  <span>{value}%</span>
-                </div>
-                <div className="track">
-                  <div className="fill" style={{ width: `${value}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : (
-        <section className="console">
-          <div className="monitor">
-            <p>&gt; CREW: {cleanName.toUpperCase()}</p>
-            <Meter label="BATTERY" value={game.power} />
-            <Meter label="OXYGEN" value={game.oxygen} />
-            <Meter label="FOOD" value={game.food} />
-          </div>
-
-          <div className="controls">
-            <p className="label">{ended ? "MISSION OVER" : "CHOOSE YOUR ACTION"}</p>
-            <div className="actions">
-              {actions.map((a) => (
-                <button key={a.id} className="act" disabled={ended} onClick={() => play(a.id)}>
-                  <b>{a.icon} {a.label}</b>
-                  <small>{a.desc}</small>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="monitor">
-            <p>
-              &gt; SOLAR OUTPUT: <b>{day ? `+${cfg.solar} / turn` : "0 (NIGHT)"}</b>
-            </p>
-            <p>&gt; LAST REPORT:</p>
-            <p className="log">{game.log || "Awaiting orders..."}</p>
-            <div className="timeline" title="Day and night schedule">
-              {Array.from({ length: cfg.totalTurns }, (_, i) => {
-                const t = i + 1;
-                return (
-                  <span
-                    key={t}
-                    className={`tick ${isDay(dest, t) ? "d" : "n"} ${t === game.turn && !ended ? "now" : ""} ${t < game.turn ? "past" : ""}`}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      )}
-
-      <footer className="credit">Video: NASA</footer>
-    </main>
+    </>
   );
 }
