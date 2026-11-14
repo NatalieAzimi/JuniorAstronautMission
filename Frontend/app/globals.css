@@ -390,3 +390,81 @@ body {
   .astro-img { width: 96px; }
   .astro-shadow { width: 46px; }
 }
+
+/* ===== Houston call (HoustonCall.tsx) =====
+   These classes were used by HoustonCall.tsx but never defined,
+   so the briefing showed as plain text. It's now a full-screen overlay. */
+.houston {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 2rem 1.2rem;
+  text-align: center;
+  color: #d8f8ff;
+  background: radial-gradient(ellipse at 50% 40%, rgba(10, 30, 50, 0.96), rgba(2, 6, 13, 0.98));
+  font-family: var(--font-geist-mono), ui-monospace, Consolas, monospace;
+  overflow-y: auto;
+}
+.houston .rings { position: relative; width: 90px; height: 90px; }
+.houston .rings i {
+  position: absolute; inset: 0;
+  border: 2px solid #3be8ff;
+  border-radius: 50%;
+  opacity: 0;
+  animation: ring-out 2.4s ease-out infinite;
+}
+.houston .rings i:nth-child(2) { animation-delay: 0.8s; }
+.houston .rings i:nth-child(3) { animation-delay: 1.6s; }
+@keyframes ring-out {
+  0% { transform: scale(0.3); opacity: 0.9; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+.incoming {
+  display: flex; align-items: center; gap: 0.6rem;
+  font-size: 0.85rem; font-weight: 700; letter-spacing: 0.25em; color: #ff8a7d;
+}
+.rec {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #ff5a4f; box-shadow: 0 0 10px #ff5a4f;
+  animation: blink 1s steps(1) infinite;
+}
+.from { font-size: clamp(1rem, 2.6vw, 1.4rem); font-weight: 800; letter-spacing: 0.15em; color: #3be8ff; }
+.houston .wave { display: flex; align-items: center; gap: 4px; height: 48px; }
+.houston .wave span {
+  width: 6px; height: 20%;
+  border-radius: 3px;
+  background: #3be8ff;
+  opacity: 0.4;
+  transition: height 0.2s;
+}
+.houston .wave.talking span { opacity: 1; animation: talk 0.45s ease-in-out infinite alternate; }
+@keyframes talk { from { height: 15%; } to { height: 100%; } }
+.captions {
+  width: min(640px, 100%);
+  display: flex; flex-direction: column; gap: 0.5rem;
+  max-height: 40vh; overflow-y: auto;
+  padding: 1rem 1.2rem;
+  border: 1px solid rgba(59, 232, 255, 0.35);
+  background: rgba(4, 16, 28, 0.85);
+  text-align: left;
+  font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
+}
+.line { margin: 0; font-size: 0.95rem; line-height: 1.5; color: #8fb5c4; }
+.line.current { color: #fff; font-size: 1.05rem; }
+.line b { color: #ffb347; }
+.call-buttons { display: flex; flex-wrap: wrap; gap: 0.7rem; justify-content: center; align-items: center; }
+.small-btn {
+  padding: 0.55rem 1.1rem;
+  border: 1px solid rgba(59, 232, 255, 0.5);
+  background: rgba(59, 232, 255, 0.06);
+  color: #bdeffa;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.small-btn:hover { border-color: #3be8ff; color: #fff; }

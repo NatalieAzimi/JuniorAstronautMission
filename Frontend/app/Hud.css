@@ -293,8 +293,8 @@
 .segs i.lit.hot  { background: var(--hot); box-shadow: 0 0 6px var(--hot); }
 b.cool { color: var(--c); } b.warm { color: var(--amber); } b.hot { color: var(--hot); }
 
-.wave { display: flex; align-items: flex-end; gap: 2px; height: 56px; border-bottom: 1px solid var(--c-dim); }
-.wave span {
+.hud-wave { display: flex; align-items: flex-end; gap: 2px; height: 56px; border-bottom: 1px solid var(--c-dim); }
+.hud-wave span {
   flex: 1;
   background: linear-gradient(to top, var(--c), rgba(59, 232, 255, 0.25));
   animation: hud-wave 1.2s ease-in-out infinite alternate;
@@ -303,7 +303,7 @@ b.cool { color: var(--c); } b.warm { color: var(--amber); } b.hot { color: var(-
 .signal-note { margin: 0; font-size: 0.74rem; line-height: 1.5; color: #a9d8e4; }
 .signal-note b { color: #fff; }
 
-.warn {
+.hud-warn {
   margin-top: auto;
   padding: 0.45rem 0.7rem;
   border: 1px solid var(--hot);

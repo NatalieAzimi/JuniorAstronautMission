@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { config, startState } from "./gameLogic";
 import type { Dest } from "./gameLogic";
-import { destinations } from "./Destinations";
+import { destinations } from "./destinations";
 import "./hud.css";
 
 type Props = {
@@ -138,7 +138,7 @@ function Dial({ label, value }: { label: string; value: number }) {
 function Waveform() {
   const bars = [4, 9, 6, 14, 10, 18, 12, 22, 15, 9, 19, 13, 24, 16, 8, 20, 11, 17, 7, 13, 21, 10, 15, 6];
   return (
-    <div className="wave" aria-hidden="true">
+    <div className="hud-wave" aria-hidden="true">
       {bars.map((h, i) => (
         <span key={i} style={{ height: `${h * 4}%`, animationDelay: `${(i % 6) * 0.15}s` }} />
       ))}
@@ -303,7 +303,7 @@ export default function HomeHud({ screen, dest, setDest, name, setName, onLaunch
             speed of light, but space is huge!
           </p>
 
-          <div className="warn">⚠ BIG RISK: {String(bigRisk).toUpperCase()}</div>
+          <div className="hud-warn">⚠ BIG RISK: {String(bigRisk).toUpperCase()}</div>
         </aside>
       </section>
 
