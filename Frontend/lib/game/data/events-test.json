@@ -1,0 +1,45 @@
+[
+  {
+    "id": "test_dust_storm",
+    "speaker": "Narrator",
+    "chance": 1,
+    "onlyIf": { "world": "mars", "minSol": 2, "maxSol": 2 },
+    "text": "TEST: An orbiter spots a dust storm heading for the base.",
+    "choices": [
+      { "label": "Charge the batteries now", "minutes": 60, "effects": { "power": 10, "research": -1 }, "flag": "dustStorm", "result": "Batteries topped up before the storm." },
+      { "label": "Keep working", "effects": { "research": 1, "power": -5 }, "flag": "dustStorm", "result": "The crew keeps working as the sky darkens." }
+    ],
+    "fact": { "text": "NASA's Mars Reconnaissance Orbiter maps Mars weather every day.", "source": "NASA JPL" }
+  },
+  {
+    "id": "test_generator_breaks",
+    "speaker": "Engineer",
+    "chance": 1,
+    "onlyIf": { "minSol": 3 },
+    "text": "TEST: The oxygen generator broke!",
+    "choices": [
+      { "label": "Repair it properly (3 h)", "minutes": 180, "effects": { "oxygen": 5 } },
+      { "label": "Quick patch (30 min)", "minutes": 30, "effects": { "oxygen": -10 }, "next": "test_patch_leaks" }
+    ]
+  },
+  {
+    "id": "test_patch_leaks",
+    "speaker": "Engineer",
+    "text": "TEST: The quick patch is leaking.",
+    "choices": [
+      { "label": "Fix it properly now (2 h)", "minutes": 120, "effects": { "oxygen": 5 } },
+      { "label": "Ignore it", "effects": { "oxygen": -15 } }
+    ]
+  },
+  {
+    "id": "test_storm_clears",
+    "speaker": "Narrator",
+    "chance": 1,
+    "onlyIf": { "minSol": 4, "hasFlag": "dustStorm" },
+    "text": "TEST: The dust storm is clearing. The panels are covered in dust.",
+    "choices": [
+      { "label": "Go outside and clean them", "minutes": 120, "effects": { "power": 8, "shielding": -3 }, "flag": "!dustStorm" },
+      { "label": "Wait for the wind", "effects": { "power": -5 }, "flag": "!dustStorm" }
+    ]
+  }
+]
