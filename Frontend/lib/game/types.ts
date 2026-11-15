@@ -70,7 +70,7 @@ export type Action = {
 
 export type RatLab = {
   fedToday: boolean;
-  experimentOk: boolean; // false if unprotected during a solar storm
+  // Sheltered or not is the "ratsSheltered" flag (see ENGINE_FLAGS in engine.ts).
 };
 
 // One line in the "why it happened" log.
@@ -91,6 +91,7 @@ export type GameState = {
   workMinutesLeft: number;   // crew time left today
   meters: Meters;
   research: number;
+  radiationMsv: number;      // crew radiation dose so far, in millisieverts (a REAL unit)
   rats: RatLab;
   flags: string[];
   activeEventId: string | null;
