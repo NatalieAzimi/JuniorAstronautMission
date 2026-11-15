@@ -1,11 +1,5 @@
 "use client";
 
-// components/home/HomeHud.tsx  (UPDATED)
-// SPEED: only the selected planet video is loaded (before, BOTH videos,
-// including a 4K one, played at the same time). On slow computers a
-// still picture is shown instead of the video.
-// NEW: mission plan for the 5-day story, live NASA solar flare count,
-// and a SETTINGS (ESC) button.
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { MISSION, START } from "@/lib/mission/config";
@@ -14,6 +8,7 @@ import type { SpaceWeather } from "@/lib/mission/nasaData";
 import { destinations } from "@/lib/turn-game/destinations";
 import { guessQuality } from "@/components/game/outpostEngine";
 import "./hud.css";
+import { funFacts } from "@/lib/turn-game/funFacts";
 
 type Props = {
   screen: "title" | "name";
@@ -52,6 +47,15 @@ function useEarthClock() {
     return () => clearInterval(id);
   }, []);
   return now ?? "--:--:--";
+}
+function useRotatingFact(dest: Dest) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setI((n) => n + 1), 10000);
+    return () => clearInterval(id);
+  }, [dest]);
+  const list = funFacts[dest];
+  return list[i % list.length];
 }
 
 function Radar({ dest, setDest }: { dest: Dest; setDest: (d: Dest) => void }) {
@@ -160,6 +164,7 @@ function Waveform() {
 
 export default function HomeHud({ screen, dest, setDest, name, setName, onLaunch, onBegin, onSettings, weather }: Props) {
   const d = destinations[dest];
+  const fact = useRotatingFact(dest);
   const clock = useEarthClock();
   const cleanName = name.trim();
   // slow computer → show a still picture instead of the video
@@ -267,7 +272,12 @@ export default function HomeHud({ screen, dest, setDest, name, setName, onLaunch
                   Last Light at Nova Outpost: survive 5 days alone. Balance battery,
                   oxygen, food and heat, fix what breaks, and hide from real solar storms.
                 </p>
-                <p className="hud-blurb">{d.blurb}</p>
+                <p className="hud-blurb" key={fact.text}>
+                    {fact.text}{" "}
+                    <a className="hud-source" href={fact.url} target="_blank" rel="noreferrer">
+                        Source: {fact.source}
+                    </a>
+                </p>
               </>
             ) : (
               <>
@@ -345,6 +355,17 @@ export default function HomeHud({ screen, dest, setDest, name, setName, onLaunch
                 {destinations[k].name.toUpperCase()}
               </button>
             ))}
+            <button
+              className="dest-key settings-key"
+              onClick={onSettings}
+              title="Settings (Esc)"
+              aria-label="Settings"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7.4 7.4 0 0 0 1.7-1l2.4 1 2-3.4z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            </button>
           </div>
         </div>
 
@@ -356,9 +377,6 @@ export default function HomeHud({ screen, dest, setDest, name, setName, onLaunch
           <p className="deck-hint">Type your name in the window above ↑</p>
         )}
 
-        <button className="dest-key" onClick={onSettings} title="Music and sound volume">
-          ⚙ SETTINGS · ESC
-        </button>
         <p className="hud-credit">Video &amp; logo: NASA</p>
       </footer>
     </main>

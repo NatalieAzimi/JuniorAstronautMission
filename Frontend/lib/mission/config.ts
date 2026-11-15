@@ -35,6 +35,18 @@ export const RATES = {
   blackout: { oxygen: 0.42, temp: 0.12, food: 0.05 }, // GAME  extra losses when battery = 0
 };
 
+// ---------- Stamina (sprinting) ----------
+// GAME: running in a bulky suit tires you out. Real moonwalkers moved in
+// short hops and rested often; Apollo crews' heart rates were watched
+// from Earth so they didn't overwork.
+export const STAMINA = {
+  max: 100,
+  sprintDrain: 20, //   GAME  per second while sprinting (about 5 s of running)
+  regen: 10, //         GAME  per second while walking or standing
+  tiredRegen: 6, //     GAME  slower if you skipped sleep last night
+  windedUntil: 35, //   GAME  hit 0 → no sprinting until it climbs back to this
+};
+
 // ---------- Cabin temperature ----------
 export const TEMP = {
   goalMin: 18, //  REAL  ISS cabin is kept at about 18–27 °C (65–80 °F), NASA ECLSS

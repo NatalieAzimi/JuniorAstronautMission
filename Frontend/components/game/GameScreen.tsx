@@ -1,18 +1,6 @@
 "use client";
 
-/**
- * GameScreen.tsx  (REWRITTEN)
- * FILE LOCATION: Frontend/components/game/GameScreen.tsx
- *
- * Runs one mission: the canvas world (outpostEngine.ts) + the mission
- * rules (lib/mission/sim.ts) + the HUD, menus and pop-ups.
- *
- * Speed notes (smooth on slow computers):
- *   • the mission clock runs inside the engine's animation frame,
- *     NOT through React state
- *   • React only re-draws the HUD 5 times a second
- *   • the engine drops to "low quality" by itself if frames are slow
- */
+
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MISSION, RADIATION, RATS, ROCKS, TASKS, TEMP, radiationSpeed } from "@/lib/mission/config";
@@ -67,6 +55,8 @@ function readHud(s: Sim) {
     battery: s.battery,
     oxygen: s.oxygen,
     food: s.food,
+    stamina: s.stamina,
+    winded: s.winded,
     tempC: s.tempC,
     outside: outsideTempC(s),
     solarPct: Math.round((solarOutput(s) / 0.62) * 100),
@@ -172,7 +162,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
       cold: s.coldDay || s.elapsed < s.coldUntil,
     });
     e.setHidden(s.sheltering);
-    e.setCanSprint(!s.sick);
+    e.setCanSprint(!s.sick && !s.winded);
     // resting after a storm = 80% speed; a big total dose slows you down more
     e.setSpeedMul((s.sick ? 0.8 : 1) * radiationSpeed(s.doseMsv));
     e.setBeacon(s.beaconOn);
@@ -366,6 +356,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
     { cls: "power", label: "BATTERY",  v: hud.battery },
     { cls: "oxygen", label: "OXYGEN",  v: hud.oxygen },
     { cls: "food", label: "FOOD", v: hud.food },
+    { cls: "stamina", label: "STAMINA", v: hud.stamina },
   ];
 
   const costChips = (task: TaskId) => {
@@ -507,7 +498,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
         </div>
       </div>
 
-      {/* ---------- Bottom-right: 4 survival meters ---------- */}
+      {/* ---------- Bottom-right: survival meters ---------- */}
       <section className="og-meters og-frame" aria-label="Survival meters">
         {meters.map((m) => (
           <div key={m.cls} className={`og-meter ${m.cls} ${level(m.v)}`}>
@@ -524,8 +515,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
             <i className="og-fill" style={{ height: `${tempPct}%` }} />
             <i className="og-bulb" />
           </div>
-          <b className="og-mval" title={`${cToF(hud.tempC)} °F`}>{Math.round(hud.tempC)}°C</b>
-          <span className="og-mlabel">TEMP</span>
+          <b className="og-mval" title={`Cabin temperature · ${cToF(hud.tempC)} °F`}>{Math.round(hud.tempC)}°</b>
         </div>
       </section>
 

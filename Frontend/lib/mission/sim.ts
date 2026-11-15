@@ -8,7 +8,7 @@
 // =====================================================================
 
 import {
-  BREAKDOWN, COMMS, FACTS_EVERY, FAULTS, MISSION, OUTSIDE_TEMP, PARTS, RADIATION, RATES, RATS, ROCKS, SLEEP, START, TASKS, TEMP,
+  BREAKDOWN, COMMS, FACTS_EVERY, FAULTS, MISSION, OUTSIDE_TEMP, PARTS, RADIATION, RATES, RATS, ROCKS, SLEEP, STAMINA, START, TASKS, TEMP,
 } from "./config";
 import type { Dest, Effects, PartId, StationId, SystemId, TaskId } from "./config";
 import { factsFor } from "./facts";
@@ -66,6 +66,8 @@ export type Sim = {
   sleepSpeed: number; //    how much faster time runs while asleep
   sleptTonight: boolean;
   restMul: number; //       job time today: rested 0.8, normal 1, tired 1.2
+  stamina: number; //       0–100, drains while sprinting
+  winded: boolean; //       ran out of stamina: no sprinting until it recovers
   task: { id: TaskId; station: StationId; left: number; total: number } | null;
   call: { arrivesAt: number } | null;
   oneWayLabel: string;
@@ -197,6 +199,7 @@ export function newSim(dest: Dest, weather: SpaceWeather, seed = Date.now()): Si
     sheltering: false, task: null, call: null,
     rats: { health: RATS.start, fedToday: false, shielded: false, exposedSecs: 0 },
     sleeping: false, sleepSpeed: 1, sleptTonight: false, restMul: 1,
+    stamina: STAMINA.max, winded: false,
     oneWayLabel, roundTripSec,
     beaconOn: false, overtime: -1, blackout: false,
     status: "playing", ending: null, failMeter: null, failWhy: [],
@@ -742,6 +745,20 @@ export function tick(s: Sim, dt: number, input: TickInput) {
     dOxygen -= RATES.sprintOxygen;
     s.stats.sprintSecs += dt;
   }
+  // --- Stamina: sprinting tires you out, walking lets you catch your breath
+  if (s.sleeping) {
+    s.stamina = STAMINA.max;
+  } else if (input.sprinting && !s.sheltering) {
+    s.stamina = Math.max(0, s.stamina - STAMINA.sprintDrain * dt);
+    if (s.stamina <= 0 && !s.winded) {
+      s.winded = true;
+      toast(s, "😮‍💨 Out of breath! Walk for a bit to get your stamina back.", "warn");
+    }
+  } else {
+    const regen = s.restMul > 1 ? STAMINA.tiredRegen : STAMINA.regen;
+    s.stamina = Math.min(STAMINA.max, s.stamina + regen * dt);
+  }
+  if (s.winded && s.stamina >= STAMINA.windedUntil) s.winded = false;
   if (isBroken(s, "recycle")) dOxygen -= 0.07;
   if (isBroken(s, "habitat")) dOxygen -= 0.12;
   // --- Food
