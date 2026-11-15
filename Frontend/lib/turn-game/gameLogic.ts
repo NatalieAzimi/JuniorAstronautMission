@@ -8,7 +8,7 @@ export const config = {
     nightTurns: 4,
     totalTurns: 24,
     solar: 30,
-    note: "On the real Moon, day and night each last about 14 Earth days. Here they're shortened so the game stays playable.",
+    note: "On the real Moon, day and night each last about 14 Earth days. To perserve the mental health of our astronauts we have an artifical day night cycle.",
   },
   mars: {
     name: "Mars",
@@ -106,14 +106,14 @@ export function nextTurn(dest: Dest, s: GameState, action: Action): GameState {
       ? day
         ? "The batteries ran out of power, so life support shut down."
         : "The batteries ran dry during the night, when solar panels make no power, so life support shut down."
-      : "The crew used oxygen faster than the air recycler and greenhouse could replace it.";
-    return { ...base, status: "lost", lossReason: `The crew ran out of oxygen. ${why}` };
+      : "You used oxygen faster than the air recycler and greenhouse could replace it.";
+    return { ...base, status: "lost", lossReason: `You ran out of oxygen. ${why}` };
   }
   if (food <= 0) {
     return {
       ...base,
       status: "lost",
-      lossReason: "The crew ran out of food. The greenhouse wasn't run often enough.",
+      lossReason: "You ran out of food. The greenhouse wasn't run often enough.",
     };
   }
   if (s.turn >= c.totalTurns) {
