@@ -74,9 +74,37 @@ const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; 
   },
   comms: {
     rect: DISH,
-    spot: {x:DISH.x-10 , y: DISH.y},
+    spot: { x: DISH.x - 10, y: DISH.y },
     label: " TEST",
-    verb: "CALL HOME" 
+    verb: "CALL HOME"
+  },
+  "solar array": {
+    rect: {
+      x: 0,
+      y: 0,
+      w: 0,
+      h: 0
+    },
+    spot: {
+      x: 0,
+      y: 0
+    },
+    label: "",
+    verb: ""
+  },
+  shield: {
+    rect: {
+      x: 0,
+      y: 0,
+      w: 0,
+      h: 0
+    },
+    spot: {
+      x: 0,
+      y: 0
+    },
+    label: "",
+    verb: ""
   }
 };
 const STATION_IDS = Object.keys(STATIONS) as StationId[];
@@ -437,7 +465,12 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   let cam = { x: 0, y: 0 };
   let t = 0;
   const keys = new Set<string>();
-  const pulse: Record<StationId, number> = { greenhouse: 0, conserve: 0, recycle: 0 };
+  const pulse: Record<StationId, number> = {
+    greenhouse: 0, conserve: 0, recycle: 0,
+    comms: 0,
+    "solar array": 0,
+    shield: 0
+  };
   const floats: { x: number; y: number; text: string; color: string; age: number; delay: number }[] = [];
   const parts: { x: number; y: number; vx: number; vy: number; life: number; max: number; c: string; s: number }[] = [];
 
