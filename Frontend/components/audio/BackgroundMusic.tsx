@@ -4,7 +4,7 @@
  * BackgroundMusic.tsx
  * ------------------------------------------------------------
  * FILE LOCATION:  Frontend/components/audio/BackgroundMusic.tsx
- * MUSIC FILE:     Frontend/public/audio/space-music.mp3
+ * MUSIC FILE:     Frontend/public/audio/SpaceMusic.mp3
  * STYLES:         Frontend/components/audio/background-music.css
  *
  * Plays looping background music at a low volume for the whole app.
@@ -24,7 +24,7 @@ import { useEffect, useRef, useState } from "react";
 import "./background-music.css";
 
 // ---- Settings you can change ----
-const MUSIC_SRC = "/audio/space-music.mp3"; // path inside Frontend/public/
+const MUSIC_SRC = "/audio/SpaceMusic.mp3"; // path inside Frontend/public/
 const VOLUME = 0.15; // 0.0 (silent) to 1.0 (full). 0.15 = soft background level
 const FADE_IN_MS = 2500; // gentle fade-in so the music doesn't start abruptly
 const STORAGE_KEY = "jamt-music-muted";
