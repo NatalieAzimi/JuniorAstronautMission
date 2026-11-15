@@ -241,6 +241,8 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
           }
         }
         e.setProgress(s.task ? 1 - s.task.left / s.task.total : null);
+        // greenhouse = walk in and harvest, storm shelter = walk into the habitat
+        e.setScene(s.task?.id === "greenhouse" ? "harvest" : s.task?.id === "shelter" ? "shelter" : null);
         const now = performance.now();
         if (now - lastSync.current > 100) {
           lastSync.current = now;
