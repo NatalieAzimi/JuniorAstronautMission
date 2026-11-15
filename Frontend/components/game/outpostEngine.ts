@@ -16,7 +16,7 @@ export type StationId = "habitat" | "greenhouse" | "recycle" | "conserve" | "sol
 export type WorldDest = "moon" | "mars";
 export type FloatText = { text: string; color: string };
 // A little cut-scene that plays while a job runs. setProgress() moves it along.
-export type Scene = "harvest" | "shelter" | "clean" | null;
+export type Scene = "harvest" | "shelter" | "clean" | "feed" | null;
 export type RatInfo = { health: number; shielded: boolean; fed: boolean }; // the rat lab
 export type OutpostStatus = { power: number; oxygen: number; food: number };
 export type Quality = "high" | "low";
@@ -73,10 +73,10 @@ const R = (x: number, y: number, w: number, h: number): Rect => ({ x: x * T, y: 
 const HAB = R(18, 3, 9, 6);
 const SOLAR = R(4, 3, 9, 5);
 const GREEN = R(4, 14, 10, 7); //  left column, under the solar array
-const RECYC = R(32, 12, 6, 5); //  right column, under the battery bank
+const RECYC = R(33, 12, 6, 5); //  right column, a bit away from the rover dock
 const BATT = R(32, 4, 6, 4);
 const DISH = R(21, 13, 3, 3); //  middle column, under the habitat door
-const PAD = R(19, 20, 8, 6); //  bottom middle (where the dish used to be)
+const PAD = R(18.5, 20, 8, 6); // bottom middle, centered under the habitat
 const DOCK = R(28, 10, 3, 2); // rover charging dock (flat: you can walk over it)
 const LAB = R(32, 20, 7, 5); //   rat lab: right column, bottom row
 const MAST = { x: PAD.x + PAD.w - 14, y: PAD.y + 4, w: 8, h: 10 };
@@ -462,6 +462,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   let scenePath: ScenePoint[] = [];
   let restoreAt = 0; // after walking into the shelter: step back out if the shelter didn't happen
   const picked = new Map<number, number>(); // greenhouse plant (row*10+col) → time it has regrown
+  const fedAt = [-99, -99, -99]; // rat lab: when each food bowl was last filled
   let panelDust = 0; // 0 = clean solar panels, 1 = very dusty
   let fix: { tool: "drill" | "tape"; until: number } | null = null; // repair animation
   // ----- the science rover: drives around, finds something ("!"), then goes home to charge -----
@@ -781,6 +782,20 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
         { x: colX(3), y: front, wait: 0.11, face: "up", wipeCol: 3 },
         STATIONS.solar.spot,
       ]);
+    } else if (sc === "feed") {
+      const { x, y } = LAB;
+      if (player.x > x) return; // not by the lab door
+      const floor = y + 51; // walk in through the door, just under the cages
+      const bowl = (c: number) => x + 26 + c * 20; // stand under each food bowl
+      scenePath = planScene([
+        from,
+        { x: x - 6, y: floor },
+        { x: bowl(0), y: floor, wait: 0.12, face: "up", pickCol: 0 },
+        { x: bowl(1), y: floor, wait: 0.12, face: "up", pickCol: 1 },
+        { x: bowl(2), y: floor, wait: 0.12, face: "up", pickCol: 2 },
+        { x: x - 6, y: floor },
+        STATIONS.lab.spot,
+      ]);
     } else {
       if (player.y < HAB.y + HAB.h) return; // not in front of the habitat
       const spot = STATIONS.habitat.spot;
@@ -791,6 +806,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
 
   function endScene(was: Exclude<Scene, null>) {
     if (was === "harvest") place(STATIONS.greenhouse.spot);
+    else if (was === "feed") place(STATIONS.lab.spot);
     else if (was === "clean") {
       place(STATIONS.solar.spot);
       panelDust = 0; // job done: the panels are clean (the next update confirms it)
@@ -819,7 +835,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     player.y = ny;
     sprinting = false;
     // picking: leaves fly while working, the plant becomes a sprout
-    if (!player.moving && b.pick && !paused && Math.random() < dt * 14) leafPop(b.pick.c, 1);
+    if (!player.moving && b.pick && !paused && Math.random() < dt * 14) (scene === "feed" ? foodPop : leafPop)(b.pick.c, 1);
     if (!player.moving && b.wipe && !paused && Math.random() < dt * 30) dustPuff(b.wipe.c);
     for (const q of k) {
       if (q.wipe && !q.wipe.done && p >= q.wipe.to) {
@@ -828,6 +844,11 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       }
       if (!q.pick || q.pick.done || p < q.pick.at) continue;
       q.pick.done = true;
+      if (scene === "feed") {
+        fedAt[q.pick.c] = t; // bowl is full, the rat runs over to eat
+        foodPop(q.pick.c, quality === "low" ? 4 : 8);
+        continue;
+      }
       picked.set(20 + q.pick.c, t + 8);
       leafPop(q.pick.c, quality === "low" ? 5 : 10);
     }
@@ -1045,18 +1066,22 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       if (!rats.shielded) {
         // a rat scurrying back and forth (slower when it's not healthy)
         const sp = rats.health > 50 ? 3 : 1.2;
-        const rx = cx + 2 + Math.round((Math.sin(t * sp + c * 2) * 0.5 + 0.5) * 7);
+        const eating = t - fedAt[c] < 4; // just got food: nibble at the bowl
+        const rx = eating
+          ? cx + 7 + (Math.sin(t * 20) > 0 ? 1 : 0)
+          : cx + 2 + Math.round((Math.sin(t * sp + c * 2) * 0.5 + 0.5) * 7);
         px(ctx, rx, cy + 8, 4, 3, "#b9bec9");
         px(ctx, rx + 4, cy + 8, 1, 1, "#ff9ad8"); // nose
         px(ctx, rx - 2, cy + 10, 2, 1, "#ff9ad8"); // tail
       }
       for (let b = 0; b < 4; b++) px(ctx, cx + 3 + b * 4, cy + 1, 1, 12, "#a9b0c0"); // bars
-      px(ctx, cx + 11, cy + 10, 4, 2, rats.fed ? "#ffd25a" : "#6b7080"); // food bowl: full after feeding
+      px(ctx, cx + 11, cy + 10, 4, 2, rats.fed || t - fedAt[c] < 5 ? "#ffd25a" : "#6b7080"); // food bowl: full after feeding
     }
     // rat health bar under the window
     const hp = clamp(rats.health / 100, 0, 1);
     px(ctx, wx, wy + 44, 62, 4, INK);
     px(ctx, wx + 1, wy + 45, Math.max(0, Math.round(60 * hp)), 2, hp > 0.6 ? "#7dffb0" : hp > 0.3 ? AMBER : HOT);
+    if (inLab()) drawPlayer();
     // shielded room: thick walls, a radiation sign, and a light that turns green when the rats are inside
     const sx = x + w - 34;
     const sy = y + 10;
@@ -1111,6 +1136,28 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       px(ctx, x - 4, y - 12, fill, 1, "#7dffb0");
     }
   }
+
+  // Rat food: little pellets bouncing into a bowl
+  function foodPop(c: number, n: number) {
+    const bx = LAB.x + 10 + 3 + c * 20 + 13;
+    const by = LAB.y + 12 + 14 + 9;
+    for (let j = 0; j < n; j++) {
+      parts.push({
+        x: bx + (Math.random() - 0.5) * 4, y: by, vx: (Math.random() - 0.5) * 16, vy: -8 - Math.random() * 10,
+        life: 0, max: 0.35 + Math.random() * 0.3, c: Math.random() < 0.5 ? "#ffd25a" : "#c49a5a", s: 1,
+      });
+    }
+  }
+  // A bag of rat food, carried while feeding
+  function drawFoodBag() {
+    const bx = Math.round(player.x) + 3;
+    const by = Math.round(player.y) - 15;
+    px(ctx, bx - 1, by - 1, 6, 7, INK);
+    px(ctx, bx, by, 4, 5, "#c49a5a");
+    px(ctx, bx + 1, by + 1, 2, 1, "#ffd25a");
+  }
+  // The astronaut is inside the rat lab (drawn in front of the cages)
+  const inLab = () => scene === "feed" && sceneOk && progress !== null && player.x > LAB.x + 1;
 
   // The astronaut is inside the greenhouse (drawn under the glass roof)
   const inGreenhouse = () => scene === "harvest" && sceneOk && progress !== null && player.x < GREEN.x + GREEN.w - 1;
@@ -1407,6 +1454,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     }
     if (scene === "clean" && sceneOk && progress !== null) drawMop();
     if (fix) drawTool();
+    if (scene === "feed" && sceneOk && progress !== null) drawFoodBag();
   }
 
   // ----- landing pad + beacon + rescue ship -----
@@ -1432,7 +1480,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     band(x + w - 7, y + 7, 3, h - 14, false);
     // touchdown target where the ship lands: a bold black ring that flashes green when the beacon is on
     const on = beaconOn && Math.sin(t * 6) > 0;
-    const cx = x + w / 2 - 6;
+    const cx = x + w / 2;
     const cy = y + h / 2;
     disc(ctx, cx, cy, 22, on ? "#7dffb0" : INK);
     disc(ctx, cx, cy, 18, "#6b7080");
@@ -1456,7 +1504,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   function drawShip() {
     if (!landing) return;
     const p = Math.min(1, landT / 4);
-    const sx = PAD.x + PAD.w / 2 - 6;
+    const sx = PAD.x + PAD.w / 2;
     const sy = PAD.y + PAD.h / 2 - 160 * (1 - p) * (1 - p);
     // shadow grows as the ship comes down
     const sh = Math.round(6 + 10 * p);
@@ -1785,7 +1833,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       { y: rover.y, draw: drawRover },
       { y: LAB.y + LAB.h, draw: drawLab },
     ];
-    if (!hidden && !inGreenhouse()) items.push({ y: player.y, draw: drawPlayer });
+    if (!hidden && !inGreenhouse() && !inLab()) items.push({ y: player.y, draw: drawPlayer });
     items.sort((a, b) => a.y - b.y).forEach((i) => i.draw());
     drawShip();
     drawBroken();

@@ -70,7 +70,18 @@ export const RADIATION = {
   sickAt: 50, //             GAME  flight surgeon orders rest above this storm dose
   warnSeconds: 20, //        GAME  warning before the storm hits
   stormSeconds: 30, //       GAME  how long the storm lasts
+  // GAME: a big total dose makes you tired and slow (real radiation sickness
+  // starts around 1000 mSv; scaled down for a 5-day game).
+  slowFrom: 100, //          GAME  below this dose you move at full speed
+  slowMax: 300, //           GAME  at or above this dose you are as slow as it gets
+  slowestSpeed: 0.6, //      GAME  60% walking speed at slowMax
 };
+
+/** Walking-speed multiplier from total radiation dose (1 = full speed). */
+export function radiationSpeed(doseMsv: number) {
+  const t = Math.max(0, Math.min(1, (doseMsv - RADIATION.slowFrom) / (RADIATION.slowMax - RADIATION.slowFrom)));
+  return 1 - t * (1 - RADIATION.slowestSpeed);
+}
 
 // ---------- One-way radio delay ----------
 export const COMMS = {
@@ -140,7 +151,7 @@ export const TASKS: Record<
     teaches: "The rescue ship needs the beacon to find the landing pad.",
   },
   feedRats: {
-    label: "FEED RATS", verb: "FEED THE LAB RATS", icon: "🐀", secs: 2,
+    label: "FEED RATS", verb: "FEED THE LAB RATS", icon: "🐀", secs: 3,
     effects: { food: -3 }, needsPower: false,
     teaches: "Animals in space need food, water and care every day, just like astronauts.",
   },

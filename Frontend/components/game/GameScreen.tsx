@@ -15,11 +15,11 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MISSION, RADIATION, RATS, TASKS, TEMP } from "@/lib/mission/config";
+import { MISSION, RADIATION, RATS, TASKS, TEMP, radiationSpeed } from "@/lib/mission/config";
 import type { Dest, PartId, StationId, SystemId, TaskId } from "@/lib/mission/config";
 import type { Apod, SpaceWeather } from "@/lib/mission/nasaData";
 import {
-  choose, clockLabel, cToF, dayPhase, dismissCard, isBroken, narratorHint, newSim, objectives, outsideTempC,
+  choose, clockLabel, cToF, dayPhase, dismissCard, isBroken, newSim, objectives, outsideTempC,
   repair, roverFact, snapshot, solarOutput, startTask, stationAction, sunLevel, tasksToNextFact, tick,
 } from "@/lib/mission/sim";
 import type { Card, Diff, RepairMode, Sim, Toast } from "@/lib/mission/sim";
@@ -28,7 +28,7 @@ import type { FloatText, Outpost, Quality, StationInfo } from "./outpostEngine";
 import EventCard from "./EventCard";
 import RepairGame from "./RepairGame";
 import InventoryPanel from "@/components/menus/InventoryPanel";
-import SettingsMenu from "@/components/menus/SettingsMenu";
+import type { Tab as InvTab } from "@/components/menus/InventoryPanel";
 import { play } from "@/lib/sfx";
 import "./game.css";
 
@@ -85,8 +85,9 @@ function readHud(s: Sim) {
     overtime: s.overtime >= 0 ? Math.ceil(s.overtime) : -1,
     beaconOn: s.beaconOn,
     rats: { ...s.rats },
-    hint: narratorHint(s),
-    log: s.log.slice(0, 4),
+    log: s.log.slice(),
+    objectives: objectives(s),
+    slowed: radiationSpeed(s.doseMsv) < 0.999,
     status: s.status,
     ending: s.ending,
     failWhy: s.failWhy,
@@ -124,10 +125,11 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
   const [sim] = useState<Sim>(() => newSim(dest, weather));
   const [hud, setHud] = useState<Hud>(() => readHud(sim));
   const [card, setCard] = useState<Card | null>(null);
-  const [menu, setMenu] = useState<"none" | "settings" | "inventory">("none");
+  const [menu, setMenu] = useState<"none" | "inventory">("none");
+  const [invTab, setInvTab] = useState<InvTab>("objectives");
   const [repairing, setRepairing] = useState<SystemId | null>(null);
   const [toasts, setToasts] = useState<(Toast & { born: number })[]>([]);
-  const [near, setNear] = useState<StationId | null>(null);
+  const [near, setNear] = useState<string | null>(null);
   const [quality, setQuality] = useState<Quality>("high");
 
   // live values for callbacks that outlive renders
@@ -165,7 +167,8 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
     });
     e.setHidden(s.sheltering);
     e.setCanSprint(!s.sick);
-    e.setSpeedMul(s.sick ? 0.8 : 1);
+    // resting after a storm = 80% speed; a big total dose slows you down more
+    e.setSpeedMul((s.sick ? 0.8 : 1) * radiationSpeed(s.doseMsv));
     e.setBeacon(s.beaconOn);
     e.setPanelDust(1 - s.solarEff);
     e.setRats({ health: s.rats.health, shielded: s.rats.shielded, fed: s.rats.fedToday });
@@ -231,9 +234,12 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
       dest,
       name,
       quality: q,
-      onNear: setNear,
-      onUse: (id) => activateStation(id),
-      onQuality: setQuality,
+      onNear: (id) => setNear(id),
+      onUse: (id) => {
+        const station = STATIONS.find((candidate) => candidate === id);
+        if (station) activateStation(station);
+      },
+      onQuality: (quality) => setQuality(quality),
       onRover: () => {
         roverFact(sim); // the rover's "!" → a fun fact card
         play("fact");
@@ -253,7 +259,9 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
         e.setProgress(s.task ? 1 - s.task.left / s.task.total : null);
         // greenhouse = walk in and harvest, shelter = walk into the habitat, clean = wipe the solar panels
         const job = s.task?.id;
-        e.setScene(job === "greenhouse" ? "harvest" : job === "shelter" ? "shelter" : job === "clean" ? "clean" : null);
+        e.setScene(
+          job === "greenhouse" ? "harvest" : job === "shelter" ? "shelter" : job === "clean" ? "clean" : job === "feedRats" ? "feed" : null,
+        );
         const now = performance.now();
         if (now - lastSync.current > 100) {
           lastSync.current = now;
@@ -284,7 +292,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
     } else play("lose");
   }, [hud]);
 
-  // ---- keyboard: E inventory, ESC settings, 1–7 quick travel ----
+  // ---- keyboard: E inventory, ESC inventory → settings tab, 1–8 quick travel ----
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -295,11 +303,13 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
       if (l.menu === "none") {
         if (k === "escape") {
           e.preventDefault();
-          setMenu("settings");
+          setInvTab("settings");
+          setMenu("inventory");
           play("click");
         } else if (k === "e" || k === "tab" || k === "i") {
           e.preventDefault();
           if (sim.status === "playing") {
+            setInvTab("objectives");
             setMenu("inventory");
             play("click");
           }
@@ -352,7 +362,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
       <div className="og-scan" aria-hidden="true" />
       {hud.cold && <div className="og-frost" aria-hidden="true" />}
 
-      {/* ---------- Top-left: commander + narrator ---------- */}
+      {/* ---------- Top-left: commander + today's objectives ---------- */}
       <div className="og-tl">
         <section className="og-cmd og-frame">
           <p className="og-kicker">COMMANDER · {isMars ? "JEZERO CRATER, MARS" : "MOON SOUTH POLE"}</p>
@@ -361,14 +371,25 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
             <span className="og-chip target">🚀 RESCUE: END OF {dayWord} {MISSION.days}</span>
             <span className={`og-chip ${hud.rats.health < 50 ? "hot" : ""}`}>🐀 RATS {Math.round(hud.rats.health)}%</span>
             {hud.sick && <span className="og-chip hot">🤒 RESTING</span>}
+            {hud.slowed && <span className="og-chip hot">☢ SLOWED</span>}
             {hud.sheltering && <span className="og-chip ok">🛡️ SHELTERED</span>}
           </div>
+          {!ended && (
+            <div className="og-goals">
+              <p className="og-kicker">
+                {dayWord} {hud.day} OBJECTIVES · {hud.objectives.filter((o) => o.done).length}/{hud.objectives.length}
+              </p>
+              <ul>
+                {hud.objectives.map((o) => (
+                  <li key={o.text} className={o.done ? "done" : ""}>
+                    <span className="og-box">{o.done ? "✔" : ""}</span>
+                    {o.text}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
-        {!ended && (
-          <p className="og-hint og-frame">
-            <b>📖 NARRATOR:</b> {hud.hint}
-          </p>
-        )}
       </div>
 
       {/* ---------- Top-right: real-time clock ---------- */}
@@ -394,17 +415,13 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
           📡 RADIO DELAY {hud.oneWay}
           {hud.commsWeak ? " · NO SIGNAL" : hud.calling >= 0 ? ` · REPLY IN ${hud.calling}s` : ""}
         </section>
-        <div className="og-btnrow">
-          <button className="og-btn" onClick={() => { setMenu("inventory"); play("click"); }} disabled={ended}>🎒 INVENTORY · E</button>
-          <button className="og-btn" onClick={() => { setMenu("settings"); play("click"); }}>☰ MENU · ESC</button>
-        </div>
       </div>
 
       {/* ---------- Top-centre: alerts ---------- */}
       <div className="og-alerts" aria-live="polite">
         {hud.blackout && <p className="og-banner bad">🔌 BLACKOUT! Air &amp; heat are OFF. Conserve power at the battery bank!</p>}
         {hud.storm === "warning" && (
-          <p className="og-banner warn">☢ {hud.flare} FLARE: STORM HITS IN {hud.stormLeft}s → SHELTER IN THE BASE</p>
+          <p className="og-banner warn">☢ {hud.flare} FLARE: STORM HITS IN {hud.stormLeft}s → SHELTER IN THE HABITAT</p>
         )}
         {hud.storm === "active" && (
           <p className="og-banner bad">☢ RADIATION STORM · {hud.stormLeft}s LEFT {hud.sheltering ? "· YOU ARE SAFE" : "· GET TO SHELTER!"}</p>
@@ -428,17 +445,6 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
           </p>
         </section>
       )}
-
-      {/* ---------- Bottom-left: log ---------- */}
-      <section className="og-log og-frame">
-        <p className="og-kicker">MISSION LOG</p>
-        <ul className="og-report">
-          {hud.log.map((l, i) => (
-            <li key={i}>{l}</li>
-          ))}
-        </ul>
-        <p className="og-tip">WASD MOVE · SHIFT SPRINT · SPACE USE · E INVENTORY · ESC MENU · 1–8 QUICK</p>
-      </section>
 
       {/* ---------- Bottom-centre: station hotbar ---------- */}
       <div className="og-bottom">
@@ -487,7 +493,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
               <i className="og-fill" style={{ height: `calc(${m.v}% - 4px)` }} />
             </div>
             <b className="og-mval">{Math.round(m.v)}</b>
-            <span className="og-mlabel">{m.icon} {m.label}</span>
+            <span className="og-mlabel">{m.label}</span>
           </div>
         ))}
         <div className={`og-meter temp ${hud.tempC < TEMP.danger ? "low" : hud.tempC < TEMP.goalMin ? "mid" : "ok"}`}>
@@ -496,8 +502,8 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
             <i className="og-fill" style={{ height: `${tempPct}%` }} />
             <i className="og-bulb" />
           </div>
-          <b className="og-mval">{Math.round(hud.tempC)}°C</b>
-          <span className="og-mlabel">🌡 {cToF(hud.tempC)}°F</span>
+          <b className="og-mval" title={`${cToF(hud.tempC)} °F`}>{Math.round(hud.tempC)}°C</b>
+          <span className="og-mlabel">TEMP</span>
         </div>
       </section>
 
@@ -522,14 +528,19 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
       )}
       {menu === "inventory" && (
         <InventoryPanel
+          key={invTab}
+          initialTab={invTab}
           onClose={() => setMenu("none")}
+          onExit={onBack}
+          exitLabel="EXIT MISSION"
           data={{
             name, dest, parts: hud.parts, broken: hud.broken, patched: hud.patched, facts: s.facts,
-            toNextFact: tasksToNextFact(s), objectives: objectives(s), doseMsv: hud.dose, sick: hud.sick, weather, apod,
+            toNextFact: tasksToNextFact(s), objectives: hud.objectives, doseMsv: hud.dose, sick: hud.sick, weather, apod,
+            log: hud.log, solarPct: hud.solarPct, solarEff: hud.solarEff, outsideC: hud.outside, oneWay: hud.oneWay,
+            commsWeak: hud.commsWeak, calling: hud.calling,
           }}
         />
       )}
-      {menu === "settings" && <SettingsMenu onClose={() => setMenu("none")} onExit={onBack} exitLabel="EXIT MISSION" />}
 
       {ended && menu === "none" && (
         <div className="og-end">
