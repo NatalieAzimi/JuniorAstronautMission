@@ -50,8 +50,6 @@ export type Outpost = {
   playFix(id: StationId, tool: "drill" | "tape"): void; // repair animation: power drill + sparks, or duct tape
   setRats(r: RatInfo): void; // rat lab: health, in the shielded room, fed today
   setSleeping(on: boolean): void; // asleep in the bed inside the base
-  emote(icon: string): void; //      a little emoji bubble over the astronaut
-  setMood(icon: string | null): void; // e.g. 🥶 now and then while the cabin is freezing
   setCanSprint(on: boolean): void;
   setSpeedMul(m: number): void;
   setBeacon(on: boolean): void;
@@ -102,7 +100,7 @@ const HEATER_SPOT = { x: HEATER.x + HEATER.w / 2, y: HEATER.y + HEATER.h + 10 };
 const SOLIDS = [...BASE_WALLS, BED, LOCKERS, HEATER, TABLE, SHELTER_ROOM, COUNTER, SOLAR, GREEN, RECYC, BATT, DISH, MAST, LAB];
 
 const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; label: string }> = {
-  habitat: { rect: HAB, spot: { x: HAB.x + HAB.w / 2, y: HAB.y + HAB.h + 14 }, label: "BASE · HEATER & SHELTER" },
+  habitat: { rect: HAB, spot: { x: HAB.x + HAB.w / 2, y: HAB.y + HAB.h + 14 }, label: "BASE · HEATER" },
   greenhouse: { rect: GREEN, spot: { x: GREEN.x + GREEN.w + 10, y: GREEN.y + GREEN.h / 2 + 8 }, label: "GREENHOUSE" },
   recycle: { rect: RECYC, spot: { x: RECYC.x - 10, y: RECYC.y + RECYC.h / 2 + 8 }, label: "AIR RECYCLER" },
   conserve: { rect: BATT, spot: { x: BATT.x + BATT.w / 2, y: BATT.y + BATT.h + 14 }, label: "BATTERY BANK" },
@@ -496,13 +494,10 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   let rats: RatInfo = { health: 100, shielded: false, fed: false };
   let sleeping = false;
   let zzzAt = 0;
-  // cute extras: bootprints in the dust, and emoji bubbles
+  // bootprints in the dust
   const prints: { x: number; y: number; born: number }[] = [];
   let stepDist = 0;
   let leftFoot = false;
-  let emoteIcon = "";
-  let emoteUntil = 0;
-  let mood: string | null = null;
   // Is the astronaut inside the base? (then the roof comes off and you see the rooms)
   const insideBase = () =>
     player.x > HAB.x + WALL && player.x < HAB.x + HAB.w - WALL && player.y > HAB.y + WALL && player.y < HAB.y + HAB.h - 1;
@@ -1844,12 +1839,6 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     if (!hidden && !sleeping) {
       const ps = toScreen(player.x, player.y - 17);
       tag(ps.x, ps.y - 4, name.toUpperCase() || "ASTRONAUT", { bg: "rgba(2,6,13,0.85)", fg: "#ffffff", border: "rgba(59,232,255,0.6)", size: 10 });
-      let bubble = t < emoteUntil ? emoteIcon : "";
-      if (!bubble && mood && t % 5 < 1.4) bubble = mood;
-      if (bubble) {
-        const hop = Math.round(Math.abs(Math.sin(t * 4)) * 2);
-        tag(ps.x, ps.y - 24 - hop, bubble, { bg: "rgba(255,255,255,0.92)", fg: "#1b0d00", border: "#ffffff", size: 13 });
-      }
     }
     if (rover.state === "found") {
       // the rover found something: a bouncing "!" over its head
@@ -2123,11 +2112,6 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     setProgress(p) { progress = p; },
     setPanelDust(d) { panelDust = clamp(d, 0, 1); },
     setRats(r) { rats = r; },
-    emote(icon) {
-      emoteIcon = icon;
-      emoteUntil = t + 1.8;
-    },
-    setMood(icon) { mood = icon; },
     setSleeping(on) {
       if (on === sleeping) return;
       sleeping = on;

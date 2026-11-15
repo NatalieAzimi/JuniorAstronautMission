@@ -169,6 +169,11 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
     e.setSpeedMul((s.sick ? 0.8 : 1) * radiationSpeed(s.doseMsv));
     e.setBeacon(s.beaconOn);
     e.setPanelDust(1 - s.solarEff);
+<<<<<<< HEAD
+=======
+    e.setRats({ health: s.rats.health, shielded: s.rats.shielded, fed: s.rats.fedToday });
+    e.setSleeping(s.sleeping);
+>>>>>>> 96caf2f506a65efc705f73636558d75154ceb715
 
     // new toasts → screen + sounds
     const fresh = s.toasts.filter((t) => t.id > seenToast.current);
