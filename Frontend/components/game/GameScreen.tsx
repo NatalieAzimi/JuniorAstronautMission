@@ -253,7 +253,9 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
         e.setProgress(s.task ? 1 - s.task.left / s.task.total : null);
         // greenhouse = walk in and harvest, shelter = walk into the habitat, clean = wipe the solar panels
         const job = s.task?.id;
-        e.setScene(job === "greenhouse" ? "harvest" : job === "shelter" ? "shelter" : job === "clean" ? "clean" : null);
+        e.setScene(
+          job === "greenhouse" ? "harvest" : job === "shelter" ? "shelter" : job === "clean" ? "clean" : job === "feedRats" ? "feed" : null,
+        );
         const now = performance.now();
         if (now - lastSync.current > 100) {
           lastSync.current = now;

@@ -140,7 +140,7 @@ export const TASKS: Record<
     teaches: "The rescue ship needs the beacon to find the landing pad.",
   },
   feedRats: {
-    label: "FEED RATS", verb: "FEED THE LAB RATS", icon: "🐀", secs: 2,
+    label: "FEED RATS", verb: "FEED THE LAB RATS", icon: "🐀", secs: 3,
     effects: { food: -3 }, needsPower: false,
     teaches: "Animals in space need food, water and care every day, just like astronauts.",
   },
