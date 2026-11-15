@@ -174,6 +174,8 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
     e.setPanelDust(1 - s.solarEff);
     e.setRats({ health: s.rats.health, shielded: s.rats.shielded, fed: s.rats.fedToday });
     e.setSleeping(s.sleeping);
+    // warning bubbles only: they pop up now and then so kids notice danger
+    e.setMood(s.sick ? "🤒" : s.tempC < TEMP.danger ? "🥶" : s.oxygen < 25 ? "😰" : s.food < 20 ? "🍽️" : null);
 
     // new toasts → screen + sounds
     const fresh = s.toasts.filter((t) => t.id > seenToast.current);
