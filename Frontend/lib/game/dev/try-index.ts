@@ -1,5 +1,5 @@
 // Test of index.ts, the functions the screens will call.
-// Run from the Frontend folder:  npx tsx lib/game/try-index.ts
+// Run from the Frontend folder:  npx tsx lib/game/dev/try-index.ts
 
 import {
   canDoAction,
@@ -15,8 +15,8 @@ import {
   whyBlocked,
   whyEvacuated,
   type Game,
-} from "./index";
-import { applyEffects } from "./engine";
+} from "../index";
+import { applyEffects } from "../engine";
 
 function show(label: string, g: Game) {
   const m = g.state.meters;

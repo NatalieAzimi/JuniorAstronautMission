@@ -1,8 +1,8 @@
 // Quick test of the game logic, no website needed.
-// Run from the Frontend folder:  npx tsx lib/game/try.ts
+// Run from the Frontend folder:  npx tsx lib/game/dev/try.ts
 
-import type { GameState } from "./types";
-import { ENGINE_FLAGS, canDoAction, clockText, doAction, endDay, lifeSupport, newGame } from "./engine";
+import type { GameState } from "../types";
+import { ENGINE_FLAGS, canDoAction, clockText, doAction, endDay, lifeSupport, newGame } from "../engine";
 
 function show(label: string, s: GameState) {
   const m = s.meters;

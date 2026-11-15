@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { config, isDay, nextTurn } from "./gameLogic";
-import type { Action, Dest, GameState } from "./gameLogic";
+import { config, isDay, nextTurn } from "@/lib/turn-game/gameLogic";
+import type { Action, Dest, GameState } from "@/lib/turn-game/gameLogic";
 import { createOutpost } from "./outpostEngine";
 import type { FloatText, Outpost, StationId } from "./outpostEngine";
 import "./game.css";

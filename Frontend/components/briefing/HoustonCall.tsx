@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { config } from "./gameLogic";
-import type { Dest } from "./gameLogic";
+import { config } from "@/lib/turn-game/gameLogic";
+import type { Dest } from "@/lib/turn-game/gameLogic";
+import "./houston.css";
 
 const PREFERRED_VOICES = ["Alex", "Aaron", "Google US English", "Microsoft Guy", "Microsoft David", "Fred", "Daniel"];
 

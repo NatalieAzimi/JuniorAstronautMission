@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { config, startState } from "./gameLogic";
-import type { Dest } from "./gameLogic";
-import { destinations } from "./destinations";
+import { config, startState } from "@/lib/turn-game/gameLogic";
+import type { Dest } from "@/lib/turn-game/gameLogic";
+import { destinations } from "@/lib/turn-game/destinations";
 import "./hud.css";
 
 type Props = {
