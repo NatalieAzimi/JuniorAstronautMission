@@ -179,6 +179,35 @@ export const FACTS: Fact[] = [
     source: "APOD", credit: "NASA APOD",
     url: "https://apod.nasa.gov/apod/",
   },
+  // ---- Rat lab (NASA Rodent Research on the ISS) ----
+  {
+    id: "rats-rr1",
+    title: "Mice in orbit",
+    text: "NASA's first Rodent Research mission sent 20 mice to the International Space Station on September 21, 2014, aboard a SpaceX Dragon cargo capsule.",
+    source: "OSDR", credit: "NASA Ames Research Center",
+    url: "https://ntrs.nasa.gov/citations/20190001971",
+  },
+  {
+    id: "rats-racetrack",
+    title: "Racing in zero-g",
+    text: "Mice on the space station floated and pushed off with their front paws. Within a few days, many began running laps around their habitat. Scientists called it 'race-tracking'.",
+    source: "OSDR", credit: "NASA Ames Research Center",
+    url: "https://ntrs.nasa.gov/citations/20160001706",
+  },
+  {
+    id: "rats-habitat",
+    title: "A home for space rodents",
+    text: "Each Rodent Habitat on the space station can house 10 mice or 6 rats for up to 90 days, with food, water, fresh air, and lights that copy day and night.",
+    source: "OSDR", credit: "ISS National Laboratory",
+    url: "https://issnationallab.org/upward/rodent-rocket-research/",
+  },
+  {
+    id: "rats-why",
+    title: "Why send rodents?",
+    text: "Mice and rats live about two years and get many of the same illnesses and aging changes as people, just faster. That helps scientists learn how space affects bodies sooner.",
+    source: "OSDR", credit: "ISS National Laboratory",
+    url: "https://issnationallab.org/upward/rodent-rocket-research/",
+  },
 ];
 
 export function factsFor(dest: Dest): Fact[] {

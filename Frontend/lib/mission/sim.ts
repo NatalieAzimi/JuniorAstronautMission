@@ -8,7 +8,7 @@
 // =====================================================================
 
 import {
-  BREAKDOWN, COMMS, FACTS_EVERY, FAULTS, MISSION, OUTSIDE_TEMP, PARTS, RADIATION, RATES, START, TASKS, TEMP,
+  BREAKDOWN, COMMS, FACTS_EVERY, FAULTS, MISSION, OUTSIDE_TEMP, PARTS, RADIATION, RATES, RATS, START, TASKS, TEMP,
 } from "./config";
 import type { Dest, Effects, PartId, StationId, SystemId, TaskId } from "./config";
 import { factsFor } from "./facts";
@@ -61,6 +61,7 @@ export type Sim = {
   facts: string[];
   factPool: string[];
   sheltering: boolean;
+  rats: { health: number; fedToday: boolean; shielded: boolean; exposedSecs: number }; // the rat lab
   task: { id: TaskId; station: StationId; left: number; total: number } | null;
   call: { arrivesAt: number } | null;
   oneWayLabel: string;
@@ -190,6 +191,7 @@ export function newSim(dest: Dest, weather: SpaceWeather, seed = Date.now()): Si
     nextFactAt: between(rnd, FACTS_EVERY.min, FACTS_EVERY.max),
     facts: [], factPool: shuffle(rnd, factsFor(dest).map((f) => f.id)),
     sheltering: false, task: null, call: null,
+    rats: { health: RATS.start, fedToday: false, shielded: false, exposedSecs: 0 },
     oneWayLabel, roundTripSec,
     beaconOn: false, overtime: -1, blackout: false,
     status: "playing", ending: null, failMeter: null, failWhy: [],
@@ -218,6 +220,7 @@ function startDay(s: Sim, day: number) {
   s.commsWeak = day === 4;
   s.sick = false;
   s.stormDose = 0; // the storm meter starts fresh each day
+  s.rats.fedToday = false; // the lab rats need food every day
   if (day > 1) s.solarEff = Math.max(0.3, s.solarEff - RATES.dustPerDay[s.dest]);
 
   const script = dayScript(s.dest, day);
@@ -293,6 +296,12 @@ export function stationAction(s: Sim, st: StationId): StationAction {
       : { kind: "blocked", verb: "IN SHELTER", reason: "You're hiding in the storm shelter." };
   }
   if (st === "habitat" && s.storm.phase !== "none") return { kind: "task", task: "shelter", verb: TASKS.shelter.verb };
+  if (st === "lab") {
+    if (s.storm.phase !== "none" && !s.rats.shielded) return { kind: "task", task: "shieldRats", verb: TASKS.shieldRats.verb };
+    if (s.rats.shielded) return { kind: "blocked", verb: "RATS ARE SHIELDED", reason: "The rats are safe in the shielded room until the storm ends." };
+    if (s.rats.fedToday) return { kind: "blocked", verb: "RATS ARE FED", reason: "The rats already ate today. Come back tomorrow!" };
+    return { kind: "task", task: "feedRats", verb: TASKS.feedRats.verb };
+  }
   const sys = st === "beacon" ? null : (st as SystemId);
   if (sys && s.broken[sys]) return { kind: "repair", system: sys, verb: `REPAIR: ${FAULTS[sys].name.toUpperCase()}` };
 
@@ -362,6 +371,11 @@ function finishTask(s: Sim) {
     toast(s, "🚨 Landing beacon ON. The rescue ship can find the pad!", "good");
   }
   if (tk.id === "call") sendCall(s);
+  if (tk.id === "feedRats") feedRats(s);
+  if (tk.id === "shieldRats") {
+    s.rats.shielded = true;
+    toast(s, "🐀 The lab rats are safe in the shielded room. Now protect yourself!", "good");
+  }
   const k = tk.id as keyof Sim["stats"];
   if (typeof s.stats[k] === "number") (s.stats[k] as number)++;
   s.done[tk.id] = true;
@@ -754,6 +768,11 @@ export function tick(s: Sim, dt: number, input: TickInput) {
     s.stormDose += got;
     s.doseMsv += got;
     if (!s.sheltering) s.stats.exposedStormSecs += dt;
+    if (!s.rats.shielded) {
+      // rats left in their normal cages get radiation too
+      s.rats.health = clamp(s.rats.health - RATS.stormLossPerSec * dt);
+      s.rats.exposedSecs += dt;
+    }
     if (!s.sick && s.stormDose >= RADIATION.sickAt) {
       s.sick = true;
       s.done.overdosed = true;
@@ -770,6 +789,10 @@ export function tick(s: Sim, dt: number, input: TickInput) {
         toast(s, `Storm over. You got ${r1(s.stormDose)} mSv from the storm.`, s.stormDose > 20 ? "warn" : "info");
       }
       note(s, `Storm dose: ${r1(s.stormDose)} mSv.`);
+      if (s.rats.exposedSecs < 1) s.done[`ratsSafe${s.day}`] = true;
+      else toast(s, `🐀 The lab rats were left out in the storm. Rat health: ${Math.round(s.rats.health)}%.`, "warn");
+      s.rats.shielded = false; // back to their normal cages
+      s.rats.exposedSecs = 0;
     }
   }
 
@@ -785,6 +808,7 @@ export function tick(s: Sim, dt: number, input: TickInput) {
     if (s.overtime <= 0) return win(s, true);
   } else if (s.t >= MISSION.daySeconds) {
     if (s.day < MISSION.days) {
+      ratsEndOfDay(s);
       s.cards.push(dayReport(s));
       startDay(s, s.day + 1);
     } else if (s.beaconOn) {
@@ -796,6 +820,26 @@ export function tick(s: Sim, dt: number, input: TickInput) {
     }
   }
 }
+
+// ---------- Rat lab ----------
+function feedRats(s: Sim) {
+  s.rats.fedToday = true;
+  s.done.fedRats = true;
+  // each feeding teaches something from NASA's real Rodent Research
+  const next = factsFor(s.dest).find((f) => f.id.startsWith("rats-") && !s.facts.includes(f.id));
+  if (next) unlockFact(s, next.id);
+  else toast(s, "🐀 The lab rats munch happily. Healthy rats mean good science!", "good");
+}
+function ratsEndOfDay(s: Sim) {
+  if (s.done[`ratsDay${s.day}`]) return;
+  s.done[`ratsDay${s.day}`] = true;
+  if (!s.rats.fedToday) {
+    s.rats.health = clamp(s.rats.health - RATS.hungerLoss);
+    note(s, `🐀 The lab rats went hungry. Rat health ${Math.round(s.rats.health)}%.`);
+  }
+}
+const ratLine = (s: Sim) =>
+  `Lab rats: ${Math.round(s.rats.health)}% healthy${s.rats.fedToday ? "" : " (they went hungry today!)"}`;
 
 function dayReport(s: Sim): Card {
   const a = s.dayStart;
@@ -820,11 +864,12 @@ function dayReport(s: Sim): Card {
     kind: "report",
     kicker: `END OF ${s.dest === "mars" ? "SOL" : "DAY"} ${s.day}`,
     title: "Narrator's report",
-    lines: [...lines, lesson],
+    lines: [...lines, ratLine(s), lesson],
   };
 }
 
 function win(s: Sim, late: boolean) {
+  ratsEndOfDay(s);
   s.status = "won";
   const lowest = Math.min(s.battery, s.oxygen, s.food, ((s.tempC - TEMP.fail) / (TEMP.goalMin - TEMP.fail)) * 100);
   s.ending = late || lowest < 20 || s.done.overdosed ? "close" : "hero";
@@ -864,6 +909,8 @@ function fail(s: Sim, m: "oxygen" | "food" | "temp") {
 // ---------- Helpers for the screens ----------
 export function narratorHint(s: Sim): string {
   if (s.blackout) return "BLACKOUT! Get to the battery bank and conserve power. Air and heat are off!";
+  if (s.storm.phase === "warning" && !s.sheltering && !s.rats.shielded)
+    return "A storm is coming! Shield the lab rats first, then hide in the habitat shelter.";
   if (s.storm.phase === "warning" && !s.sheltering) return "A storm is coming! Run to the habitat and hide in the shelter.";
   if (s.storm.phase === "active" && !s.sheltering) return "You're out in a radiation storm! Get to the shelter in the habitat!";
   if (s.sheltering) return "You're safe in the shelter. Wait for the storm to pass.";
@@ -876,6 +923,7 @@ export function narratorHint(s: Sim): string {
   if (s.day === MISSION.days && !s.beaconOn) return "Rescue day! Power the landing beacon before the day ends.";
   if (s.battery < 25 && !isDaylight(s)) return "Your battery is low and the panels are dark. What matters most?";
   if (dayPhase(s) > MISSION.sunset - 0.12 && dayPhase(s) < MISSION.sunset) return "Sunset is coming. Charge up before the panels go dark.";
+  if (!s.rats.fedToday && dayPhase(s) > 0.35) return "The lab rats are hungry. Feed them at the rat lab (key 8).";
   if (s.solarEff < 0.7) return "The solar panels are dusty. Cleaning them gives you more power.";
   if (s.tempC < TEMP.goalMin) return "The cabin is chilly. Turn up the heater when you can afford the battery.";
   return "All systems steady. Pick your next job. Every choice costs something!";
@@ -905,6 +953,9 @@ export function objectives(s: Sim): Objective[] {
     o.push({ text: "Stay safe from the big storm 🛡️", done: !!d.storm2 && s.stormDose < RADIATION.sickAt });
     o.push({ text: "Survive until the ship lands 🚀", done: false });
   }
+  o.push({ text: "Feed the lab rats 🐀", done: s.rats.fedToday });
+  if (day === 2 || day === 5)
+    o.push({ text: "Shield the lab rats from the storm 🐀🛡️", done: !!d[`ratsSafe${day}`] || (s.rats.shielded && s.rats.exposedSecs < 1) });
   const brokenNow = (Object.keys(s.broken) as SystemId[]).filter((id) => isBroken(s, id)).length;
   o.push({ text: brokenNow ? `Fix broken systems (${brokenNow} left) 🔧` : "All systems working 🔧", done: brokenNow === 0 });
   o.push({ text: `Keep the cabin in the goal zone (${TEMP.goalMin}–${TEMP.goalMax} °C) 🌡️`, done: s.tempC >= TEMP.goalMin && s.tempC <= TEMP.goalMax });
