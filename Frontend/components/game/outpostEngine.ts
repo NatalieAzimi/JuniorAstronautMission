@@ -6,7 +6,7 @@
 // up by `zoom` with smoothing off so pixels stay crisp.
 // =========================================================
 
-export type StationId = "greenhouse" | "conserve" | "recycle";
+export type StationId = "greenhouse" | "conserve" | "recycle"| "comms"| "solar array"| "shield";
 export type WorldDest = "moon" | "mars";
 export type FloatText = { text: string; color: string };
 export type OutpostStatus = { power: number; oxygen: number; food: number };
@@ -51,7 +51,7 @@ const GREEN = R(5, 15, 10, 7);
 const RECYC = R(31, 15, 6, 5);
 const BATT = R(32, 4, 6, 4);
 const DISH = R(21, 20, 3, 3);
-const SOLIDS = [HAB, SOLAR, GREEN, RECYC, BATT, DISH];
+const SOLIDS = [HAB, SOLAR, GREEN, RECYC, BATT, DISH]; //base, solar panel, greenhouse, recycler, battery bank, comms?
 
 const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; label: string; verb: string }> = {
   greenhouse: {
@@ -72,6 +72,12 @@ const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; 
     label: "BATTERY BANK",
     verb: "CONSERVE POWER",
   },
+  comms: {
+    rect: DISH,
+    spot: {x:DISH.x-10 , y: DISH.y},
+    label: "",
+    verb: "CALL HOME" 
+  }
 };
 const STATION_IDS = Object.keys(STATIONS) as StationId[];
 
