@@ -87,14 +87,14 @@ const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; 
   shield: {
     rect: HAB,
     spot: {x:HAB.x-10, y:HAB.y+HAB.h/2+8},
-    label: "",
+    label: "BASE",
     verb: "SHIELD BASE"
   }
 };
 const STATION_IDS = Object.keys(STATIONS) as StationId[];
 
 const DECOR_LABELS: { rect: Rect; label: string }[] = [
-  { rect: HAB, label: "HABITAT" },
+  //{ rect: HAB, label: "HABITAT" },
   //{ rect: SOLAR, label: "SOLAR ARRAY" },
   //{ rect: DISH, label: "" },
 ];
