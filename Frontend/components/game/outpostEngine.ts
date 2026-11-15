@@ -1150,6 +1150,34 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     }
   }
 
+  // The greenhouse's glass roof: drawn once, then reused every frame
+  let roofArt: HTMLCanvasElement | null = null;
+  function buildRoof() {
+    const { w, h } = GREEN;
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const g = c.getContext("2d")!;
+    const frame = "rgba(220,248,255,0.32)";
+    const rim = "rgba(235,252,255,0.7)";
+    px(g, 5, 5, w - 10, h - 10, "rgba(160,240,255,0.12)"); // tinted glass
+    px(g, 5, 5, w - 10, h / 2 - 6, "rgba(255,255,255,0.05)"); // sunny side of the roof
+    for (let X = 8; X < w - 6; X += 20) px(g, X, 5, 1, h - 10, frame); // pane frames between the plants
+    for (let Y = 26; Y < h - 6; Y += 24) px(g, 5, Y, w - 10, 1, frame);
+    px(g, 5, h / 2 - 1, w - 10, 2, "rgba(240,252,255,0.5)"); // roof ridge
+    px(g, 3, 3, w - 6, 2, rim); // metal rim (with a gap for the door on the right)
+    px(g, 3, h - 5, w - 6, 2, rim);
+    px(g, 3, 3, 2, h - 6, rim);
+    px(g, w - 5, 3, 2, h / 2 - 11, rim);
+    px(g, w - 5, h / 2 + 8, 2, h / 2 - 11, rim);
+    for (let s = 0; s < 3; s++) {
+      // reflections
+      const sx = 20 + s * 50;
+      for (let k = 0; k < 30; k++) px(g, sx + k, 6 + k, 2, 1, "rgba(255,255,255,0.2)");
+    }
+    return c;
+  }
+
   function drawGreenhouse() {
     const { x, y, w, h } = GREEN;
     const p = PAL[dest];
@@ -1198,13 +1226,9 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       }
     }
     if (inGreenhouse()) drawPlayer();
-    // glass roof shine
-    ctx.fillStyle = "rgba(160,240,255,0.10)";
-    ctx.fillRect(x + 5, y + 5, w - 10, h - 10);
-    for (let s = 0; s < 3; s++) {
-      const sx = x + 20 + s * 50;
-      for (let k = 0; k < 30; k++) px(ctx, sx + k, y + 6 + k, 2, 1, "rgba(255,255,255,0.14)");
-    }
+    // glass roof: panes in a metal frame, a ridge down the middle, and reflections
+    roofArt ??= buildRoof();
+    ctx.drawImage(roofArt, x, y);
     // grow lights along the rim
     for (let k = 0; k < 8; k++) px(ctx, x + 10 + k * 19, y + 3, 3, 2, night ? "#ff9ad8" : "#8a90a0");
     if (pulse.greenhouse > 0) {
