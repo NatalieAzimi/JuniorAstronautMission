@@ -50,8 +50,6 @@ export type Outpost = {
   playFix(id: StationId, tool: "drill" | "tape"): void; // repair animation: power drill + sparks, or duct tape
   setRats(r: RatInfo): void; // rat lab: health, in the shielded room, fed today
   setSleeping(on: boolean): void; // asleep in the bed inside the base
-  emote(icon: string): void; //      a little emoji bubble over the astronaut
-  setMood(icon: string | null): void; // e.g. 🥶 now and then while the cabin is freezing
   setCanSprint(on: boolean): void;
   setSpeedMul(m: number): void;
   setBeacon(on: boolean): void;
@@ -496,13 +494,10 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   let rats: RatInfo = { health: 100, shielded: false, fed: false };
   let sleeping = false;
   let zzzAt = 0;
-  // cute extras: bootprints in the dust, and emoji bubbles
+  // bootprints in the dust
   const prints: { x: number; y: number; born: number }[] = [];
   let stepDist = 0;
   let leftFoot = false;
-  let emoteIcon = "";
-  let emoteUntil = 0;
-  let mood: string | null = null;
   // Is the astronaut inside the base? (then the roof comes off and you see the rooms)
   const insideBase = () =>
     player.x > HAB.x + WALL && player.x < HAB.x + HAB.w - WALL && player.y > HAB.y + WALL && player.y < HAB.y + HAB.h - 1;
@@ -1626,7 +1621,9 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
 
   function drawDish() {
     const { x, y, w, h } = DISH;
-    shadow(DISH);
+    // shadow shaped like the dish and its base (a square shadow looked off-center)
+    disc(ctx, x + w / 2 + 4, y + 20, 15, "rgba(0,0,0,0.22)");
+    px(ctx, x + 10, y + h - 6, w - 14, 7, "rgba(0,0,0,0.22)");
     px(ctx, x + 6, y + h - 10, w - 12, 10, INK);
     px(ctx, x + 8, y + h - 8, w - 16, 6, "#8a90a0");
     px(ctx, x + w / 2 - 2, y + 18, 4, h - 26, INK);
@@ -1844,12 +1841,6 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     if (!hidden && !sleeping) {
       const ps = toScreen(player.x, player.y - 17);
       tag(ps.x, ps.y - 4, name.toUpperCase() || "ASTRONAUT", { bg: "rgba(2,6,13,0.85)", fg: "#ffffff", border: "rgba(59,232,255,0.6)", size: 10 });
-      let bubble = t < emoteUntil ? emoteIcon : "";
-      if (!bubble && mood && t % 5 < 1.4) bubble = mood;
-      if (bubble) {
-        const hop = Math.round(Math.abs(Math.sin(t * 4)) * 2);
-        tag(ps.x, ps.y - 24 - hop, bubble, { bg: "rgba(255,255,255,0.92)", fg: "#1b0d00", border: "#ffffff", size: 13 });
-      }
     }
     if (rover.state === "found") {
       // the rover found something: a bouncing "!" over its head
@@ -2123,11 +2114,6 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     setProgress(p) { progress = p; },
     setPanelDust(d) { panelDust = clamp(d, 0, 1); },
     setRats(r) { rats = r; },
-    emote(icon) {
-      emoteIcon = icon;
-      emoteUntil = t + 1.8;
-    },
-    setMood(icon) { mood = icon; },
     setSleeping(on) {
       if (on === sleeping) return;
       sleeping = on;
