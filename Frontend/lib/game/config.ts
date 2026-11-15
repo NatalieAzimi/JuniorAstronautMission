@@ -73,8 +73,8 @@ export const LIMITS = {
 export const ACTIONS: Action[] = [
   { id: "tendGreenhouse", label: "Tend the greenhouse",            station: "greenhouse", minutes: 60,  effects: { food: 6, power: -3 } },
   { id: "serviceOxygen",  label: "Service the oxygen generator",   station: "oxygen",     minutes: 60,  effects: { oxygen: 5, power: -2 } },
-  { id: "cleanPanels",    label: "Go outside: clean solar panels", station: "airlock",    minutes: 120, effects: { power: 8, shielding: -3 } },
-  { id: "buildShield",    label: "Go outside: pile regolith on the roof", station: "airlock", minutes: 180, effects: { shielding: 12, power: -2 } },
+  { id: "cleanPanels",    label: "Go outside: clean solar panels", station: "solar array",    minutes: 120, effects: { power: 8, shielding: -3 } },
+  { id: "buildShield",    label: "Go outside: activate shield", station: "solar array", minutes: 180, effects: { shielding: 12, power: -20 } },
   { id: "feedRats",       label: "Feed the lab rats",              station: "lab",        minutes: 15,  effects: { food: -1 } },
   { id: "studyRats",      label: "Study the rats",                 station: "lab",        minutes: 120, effects: { research: 2, power: -2 } },
   { id: "protectRats",    label: "Move the rats to the shielded room", station: "lab",    minutes: 30,  effects: { power: -1 } },
