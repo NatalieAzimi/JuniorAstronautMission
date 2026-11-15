@@ -1,9 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { config, startState } from "@/lib/turn-game/gameLogic";
-import type { Dest } from "@/lib/turn-game/gameLogic";
+// components/home/HomeHud.tsx  (UPDATED)
+// SPEED: only the selected planet video is loaded (before, BOTH videos,
+// including a 4K one, played at the same time). On slow computers a
+// still picture is shown instead of the video.
+// NEW: mission plan for the 5-day story, live NASA solar flare count,
+// and a SETTINGS (ESC) button.
+
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { MISSION, START } from "@/lib/mission/config";
+import type { Dest } from "@/lib/mission/config";
+import type { SpaceWeather } from "@/lib/mission/nasaData";
 import { destinations } from "@/lib/turn-game/destinations";
+import { guessQuality } from "@/components/game/outpostEngine";
 import "./hud.css";
 
 type Props = {
@@ -14,9 +23,12 @@ type Props = {
   setName: (n: string) => void;
   onLaunch: () => void; // title -> name screen
   onBegin: () => void; // name screen -> Houston call
+  onSettings: () => void;
+  weather: SpaceWeather | null;
 };
 
 const keys = Object.keys(destinations) as Dest[];
+const noop = () => () => {};
 
 // Where each target sits on the radar (Earth is the centre).
 // The Moon is drawn close and Mars near the edge so kids "see" the distance.
@@ -146,12 +158,12 @@ function Waveform() {
   );
 }
 
-export default function HomeHud({ screen, dest, setDest, name, setName, onLaunch, onBegin }: Props) {
+export default function HomeHud({ screen, dest, setDest, name, setName, onLaunch, onBegin, onSettings, weather }: Props) {
   const d = destinations[dest];
   const clock = useEarthClock();
   const cleanName = name.trim();
-  const cfg = config[dest];
-  const start = startState();
+  // slow computer → show a still picture instead of the video
+  const still = useSyncExternalStore(noop, () => guessQuality() === "low", () => false);
   const bigRisk = d.stats.find(([l]) => l === "BIG RISK")?.[1] ?? "";
 
   return (
@@ -200,34 +212,44 @@ export default function HomeHud({ screen, dest, setDest, name, setName, onLaunch
           <p className="panel-title gap">MISSION PLAN</p>
           <ul className="readout">
             <li>
-              <span>MISSION LENGTH</span>
-              <b>{cfg.totalTurns} turns</b>
+              <span>RESCUE SHIP</span>
+              <b>in {MISSION.days} {dest === "mars" ? "sols" : "days"}</b>
             </li>
             <li>
-              <span>SOLAR PANELS</span>
-              <b>+{cfg.solar} power by day</b>
+              <span>ONE DAY</span>
+              <b>{MISSION.daySeconds / 60} real minutes</b>
             </li>
             <li>
               <span>AT NIGHT</span>
-              <b className="warm">0 power</b>
+              <b className="warm">0 solar power</b>
+            </li>
+            <li>
+              <span>SUN (30 DAYS)</span>
+              <b className={weather?.live ? "" : "warm"}>
+                {weather ? `${weather.counts.X} X · ${weather.counts.M} M flares ${weather.live ? "· LIVE" : "· ARCHIVED"}` : "checking NASA…"}
+              </b>
             </li>
           </ul>
         </aside>
 
         {/* Centre: viewport with planet video and targeting reticle */}
         <div className="hud-view frame">
-          {keys.map((k) => (
+          {still ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img key={dest} className="hud-video show" src={d.poster} alt={`${d.name} from space`} />
+          ) : (
             <video
-              key={k}
-              className={`hud-video ${dest === k ? "show" : ""}`}
-              src={destinations[k].video}
+              key={dest}
+              className="hud-video show"
+              src={d.video}
+              poster={d.poster}
               autoPlay
               muted
               loop
               playsInline
-              preload="auto"
+              preload="metadata"
             />
-          ))}
+          )}
           <div className="hud-scan" />
           <Reticle />
           <span className="corner tl" /><span className="corner tr" />
@@ -242,8 +264,8 @@ export default function HomeHud({ screen, dest, setDest, name, setName, onLaunch
                   <span>Mission Trainer</span>
                 </h1>
                 <p className="hud-sub">
-                  Run a lunar or Martian outpost. Balance power, oxygen, and food
-                  through every day and night.
+                  Last Light at Nova Outpost: survive 5 days alone. Balance battery,
+                  oxygen, food and heat, fix what breaks, and hide from real solar storms.
                 </p>
                 <p className="hud-blurb">{d.blurb}</p>
               </>
@@ -291,9 +313,9 @@ export default function HomeHud({ screen, dest, setDest, name, setName, onLaunch
 
           <p className="panel-title gap">STARTING SUPPLIES</p>
           <div className="dials">
-            <Dial label="BATTERY" value={start.power} />
-            <Dial label="OXYGEN" value={start.oxygen} />
-            <Dial label="FOOD" value={start.food} />
+            <Dial label="BATTERY" value={START.battery} />
+            <Dial label="OXYGEN" value={START.oxygen} />
+            <Dial label="FOOD" value={START.food} />
           </div>
 
           <p className="panel-title gap">SIGNAL TO EARTH</p>
@@ -334,6 +356,9 @@ export default function HomeHud({ screen, dest, setDest, name, setName, onLaunch
           <p className="deck-hint">Type your name in the window above ↑</p>
         )}
 
+        <button className="dest-key" onClick={onSettings} title="Music and sound volume">
+          ⚙ SETTINGS · ESC
+        </button>
         <p className="hud-credit">Video &amp; logo: NASA</p>
       </footer>
     </main>

@@ -1,35 +1,37 @@
-import type { Dest } from "./gameLogic";
+// lib/turn-game/destinations.ts  (UPDATED)
+// Destination info shown on the homepage.
+// SPEED: videos were re-encoded to 1280x720 at 30 fps (Mars was 4K and 63 MB,
+// now 2.4 MB). Each one has a still "poster" picture for slow computers.
+import type { Dest } from "@/lib/mission/config";
 
-// Destination info shown on the homepage (moved here from page.tsx so both
-// page.tsx and HomeHud.tsx can share it).
 export const destinations = {
   moon: {
     name: "Moon",
     video: "/moon.mp4",
-    blurb: "Nights last 14 Earth days. Your solar panels go dark. Can you keep the lights on?",
+    poster: "/moon-poster.jpg",
+    blurb: "You're alone at Nova Outpost near the Moon's south pole. Keep the lights on for 5 days until the rescue ship lands.",
     stats: [
       ["GRAVITY", "0.17 g"],
-      ["DAY LENGTH", "29.5 Earth days"],
+      ["REAL DAY", "29.5 Earth days"],
       ["SUNLIGHT", "14 days on, 14 off"],
       ["BIG RISK", "Freezing nights"],
     ],
-    gauges: [["POWER", 85], ["RADIATION", 70], ["SUPPLY TRIPS", 40]],
-    // One-way radio delay (Earth–Moon ≈ 384,400 km at light speed)
+    gauges: [["POWER", 70], ["RADIATION", 75], ["COLD", 85]],
     delay: "≈1.3 sec",
     distance: "384,400 km",
   },
   mars: {
     name: "Mars",
     video: "/mars.mp4",
-    blurb: "Dust storms block the sun. Resupply is months away. Plan carefully.",
+    poster: "/mars-poster.jpg",
+    blurb: "You're alone at Nova Outpost in Jezero Crater. Dust storms block the Sun and Earth is minutes away by radio.",
     stats: [
       ["GRAVITY", "0.38 g"],
-      ["DAY LENGTH", "24 h 37 min"],
+      ["DAY LENGTH", "24 h 39 min"],
       ["SUNLIGHT", "~43% of Earth"],
       ["BIG RISK", "Dust storms"],
     ],
-    gauges: [["POWER", 60], ["RADIATION", 75], ["SUPPLY TRIPS", 95]],
-    // One-way radio delay varies with where Earth and Mars are in their orbits
+    gauges: [["POWER", 85], ["RADIATION", 65], ["COLD", 75]],
     delay: "3–22 min",
     distance: "55–400 million km",
   },
