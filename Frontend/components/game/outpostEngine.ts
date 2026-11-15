@@ -75,7 +75,7 @@ const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; 
   comms: {
     rect: DISH,
     spot: {x:DISH.x-10 , y: DISH.y},
-    label: "",
+    label: " TEST",
     verb: "CALL HOME" 
   }
 };
