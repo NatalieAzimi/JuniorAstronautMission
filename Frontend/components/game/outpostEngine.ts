@@ -12,7 +12,7 @@
 //     cached labels and lights, 30 fps cap in low mode
 // =========================================================
 
-export type StationId = "habitat" | "greenhouse" | "recycle" | "conserve" | "solar" | "comms" | "beacon" | "lab";
+export type StationId = "habitat" | "greenhouse" | "recycle" | "conserve" | "solar" | "comms" | "beacon" | "lab" | "bed";
 export type WorldDest = "moon" | "mars";
 export type FloatText = { text: string; color: string };
 // A little cut-scene that plays while a job runs. setProgress() moves it along.
@@ -49,6 +49,7 @@ export type Outpost = {
   setPanelDust(d: number): void; // 0 = clean solar panels, 1 = very dusty
   playFix(id: StationId, tool: "drill" | "tape"): void; // repair animation: power drill + sparks, or duct tape
   setRats(r: RatInfo): void; // rat lab: health, in the shielded room, fed today
+  setSleeping(on: boolean): void; // asleep in the bed inside the base
   setCanSprint(on: boolean): void;
   setSpeedMul(m: number): void;
   setBeacon(on: boolean): void;
@@ -80,7 +81,22 @@ const PAD = R(18.5, 20, 8, 6); // bottom middle, centered under the habitat
 const DOCK = R(28, 10, 3, 2); // rover charging dock (flat: you can walk over it)
 const LAB = R(32, 20, 7, 5); //   rat lab: right column, bottom row
 const MAST = { x: PAD.x + PAD.w - 14, y: PAD.y + 4, w: 8, h: 10 };
-const SOLIDS = [HAB, SOLAR, GREEN, RECYC, BATT, DISH, MAST, LAB];
+// Inside the base: walls with a door gap at the bottom, and furniture you bump into
+const WALL = 6;
+const BASE_WALLS: Rect[] = [
+  { x: HAB.x, y: HAB.y, w: HAB.w, h: WALL },
+  { x: HAB.x, y: HAB.y, w: WALL, h: HAB.h },
+  { x: HAB.x + HAB.w - WALL, y: HAB.y, w: WALL, h: HAB.h },
+  { x: HAB.x, y: HAB.y + HAB.h - WALL, w: HAB.w / 2 - 11, h: WALL },
+  { x: HAB.x + HAB.w / 2 + 11, y: HAB.y + HAB.h - WALL, w: HAB.w / 2 - 11, h: WALL },
+];
+const BED: Rect = { x: HAB.x + 10, y: HAB.y + 10, w: 32, h: 18 };
+const LOCKERS: Rect = { x: HAB.x + 52, y: HAB.y + 8, w: 40, h: 10 };
+const HEATER: Rect = { x: HAB.x + HAB.w - 36, y: HAB.y + 9, w: 26, h: 12 };
+const TABLE: Rect = { x: HAB.x + 16, y: HAB.y + 52, w: 26, h: 14 };
+const SHELTER_ROOM: Rect = { x: HAB.x + HAB.w - 46, y: HAB.y + HAB.h - 46, w: 40, h: 40 };
+const HEATER_SPOT = { x: HEATER.x + HEATER.w / 2, y: HEATER.y + HEATER.h + 10 };
+const SOLIDS = [...BASE_WALLS, BED, LOCKERS, HEATER, TABLE, SHELTER_ROOM, SOLAR, GREEN, RECYC, BATT, DISH, MAST, LAB];
 
 const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; label: string }> = {
   habitat: { rect: HAB, spot: { x: HAB.x + HAB.w / 2, y: HAB.y + HAB.h + 14 }, label: "BASE · HEATER & SHELTER" },
@@ -91,6 +107,7 @@ const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; 
   comms: { rect: DISH, spot: { x: DISH.x + DISH.w / 2, y: DISH.y - 10 }, label: "COMMS DISH · EARTH" },
   beacon: { rect: PAD, spot: { x: PAD.x + PAD.w / 2 - 12, y: PAD.y + PAD.h / 2 + 4 }, label: "LANDING PAD · BEACON" },
   lab: { rect: LAB, spot: { x: LAB.x - 10, y: LAB.y + LAB.h / 2 + 8 }, label: "RAT LAB" },
+  bed: { rect: BED, spot: { x: BED.x + BED.w + 8, y: BED.y + BED.h - 2 }, label: "BED" },
 };
 const STATION_IDS = Object.keys(STATIONS) as StationId[];
 
@@ -474,6 +491,14 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   };
   let pendingRover = false; // walking over to the rover after clicking it
   let rats: RatInfo = { health: 100, shielded: false, fed: false };
+  let sleeping = false;
+  let zzzAt = 0;
+  // Is the astronaut inside the base? (then the roof comes off and you see the rooms)
+  const insideBase = () =>
+    player.x > HAB.x + WALL && player.x < HAB.x + HAB.w - WALL && player.y > HAB.y + WALL && player.y < HAB.y + HAB.h - 1;
+  // Inside, the base's job (heater / shelter) is done at the heater, not the front door
+  const reachRect = (id: StationId) => (insideBase() && id === "habitat" ? HEATER : STATIONS[id].rect);
+  const spotOf = (id: StationId) => (insideBase() && id === "habitat" ? HEATER_SPOT : STATIONS[id].spot);
   let canSprint = true;
   let speedMul = 1;
   let beaconOn = false;
@@ -498,7 +523,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   let cam = { x: 0, y: 0 };
   let t = 0;
   const keys = new Set<string>();
-  const pulse: Record<StationId, number> = { habitat: 0, greenhouse: 0, conserve: 0, recycle: 0, solar: 0, comms: 0, beacon: 0, lab: 0 };
+  const pulse: Record<StationId, number> = { habitat: 0, greenhouse: 0, conserve: 0, recycle: 0, solar: 0, comms: 0, beacon: 0, lab: 0, bed: 0 };
   const floats: { x: number; y: number; text: string; color: string; age: number }[] = [];
   const parts: { x: number; y: number; vx: number; vy: number; life: number; max: number; c: string; s: number }[] = [];
   const dust: { x: number; y: number; v: number }[] = [];
@@ -543,7 +568,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     } else if ((k === " " || k === "enter" || k === "f") && !(e.target instanceof HTMLButtonElement)) {
       e.preventDefault();
       if (e.repeat) return; // holding the key must not fire job after job
-      if (paused) return;
+      if (paused || sleeping) return;
       if (roverNear()) readRover();
       else if (near) interact(near);
     }
@@ -556,7 +581,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     return { x: (clientX - r.left) / zoom + cam.x, y: (clientY - r.top) / zoom + cam.y };
   };
   const onPointerDown = (e: PointerEvent) => {
-    if (paused) return;
+    if (paused || sleeping) return;
     const w = toWorld(e.clientX, e.clientY);
     if (rover.state === "found" && Math.abs(w.x - rover.x) < 12 && w.y > rover.y - 22 && w.y < rover.y + 4) {
       // clicked the rover: read it, or walk over first
@@ -569,7 +594,16 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       return;
     }
     pendingRover = false;
-    const hit = STATION_IDS.find((id) => inside(w.x, w.y, STATIONS[id].rect, 6));
+    let hit: StationId | undefined;
+    if (insideBase() && inside(w.x, w.y, HAB, 0)) {
+      // inside the base: click the bed or the heater, or just walk around the room
+      hit = inside(w.x, w.y, BED, 4) ? "bed" : inside(w.x, w.y, HEATER, 4) ? "habitat" : undefined;
+      if (!hit) {
+        pendingUse = null;
+        walkTo(w.x, w.y);
+        return;
+      }
+    } else hit = STATION_IDS.find((id) => id !== "bed" && inside(w.x, w.y, STATIONS[id].rect, 6));
     if (hit) {
       if (near === hit) interact(hit);
       else api.goUse(hit);
@@ -597,7 +631,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     pendingUse = null;
     if (t - lastUse < 0.35) return;
     lastUse = t;
-    faceToward(STATIONS[id].rect);
+    faceToward(reachRect(id));
     opts.onUse?.(id);
   }
   function faceToward(r: Rect) {
@@ -608,9 +642,26 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
 
   // Which station is the astronaut standing next to? (closest one wins)
   function nearest(): StationId | null {
+    if (insideBase()) {
+      // inside the base only the bed and the heater are in reach
+      let pick: StationId | null = null;
+      let pickD = 16;
+      for (const id of ["bed", "habitat"] as StationId[]) {
+        const r = reachRect(id);
+        const dx = Math.max(r.x - player.x, 0, player.x - (r.x + r.w));
+        const dy = Math.max(r.y - (player.y - 3), 0, player.y - 3 - (r.y + r.h));
+        const d = Math.hypot(dx, dy);
+        if (d < pickD) {
+          pickD = d;
+          pick = id;
+        }
+      }
+      return pick;
+    }
     let best: StationId | null = null;
     let bestD = Infinity;
     for (const id of STATION_IDS) {
+      if (id === "bed") continue;
       const r = STATIONS[id].rect;
       if (!inside(player.x, player.y - 3, r, 24)) continue;
       const dx = Math.max(r.x - player.x, 0, player.x - (r.x + r.w));
@@ -626,6 +677,16 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
 
   // ----- movement with collision -----
   function step(dt: number) {
+    if (sleeping) {
+      // tucked in bed: no walking, just Zzz
+      player.moving = false;
+      sprinting = false;
+      if (!paused && t > zzzAt) {
+        zzzAt = t + 0.8;
+        floats.push({ x: BED.x + 8, y: BED.y + 4, text: Math.random() < 0.5 ? "z" : "Z", color: "#cfe8ff", age: 0 });
+      }
+      return;
+    }
     if (restoreAt && t > restoreAt) {
       restoreAt = 0;
       if (!hidden) place(STATIONS.habitat.spot);
@@ -694,7 +755,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       if (stuckFor > 0.35) {
         target = null;
         route = [];
-        if (pendingUse && inside(player.x, player.y - 3, STATIONS[pendingUse].rect, 26)) interact(pendingUse);
+        if (pendingUse && inside(player.x, player.y - 3, reachRect(pendingUse), 26)) interact(pendingUse);
         if (pendingRover && roverNear()) readRover();
         pendingRover = false;
         pendingUse = null;
@@ -1041,6 +1102,71 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     rover.timer = 1.2;
     floats.push({ x: rover.x, y: rover.y - 12, text: "BEEP BOOP!", color: AMBER, age: 0 });
     opts.onRover?.();
+  }
+
+  // ----- inside the base (roof off): bed, lockers, heater, table, storm shelter -----
+  function drawBaseInside() {
+    const { x, y, w, h } = HAB;
+    const p = PAL[dest];
+    shadow(HAB);
+    px(ctx, x, y, w, h, INK);
+    px(ctx, x + 2, y + 2, w - 4, h - 4, "#8a90a0"); // walls
+    px(ctx, x + WALL, y + WALL, w - WALL * 2, h - WALL * 2, "#cfd4de"); // floor
+    for (let gx = x + WALL + 12; gx < x + w - WALL; gx += 12) px(ctx, gx, y + WALL, 1, h - WALL * 2, "#c2c7d2");
+    for (let gy = y + WALL + 12; gy < y + h - WALL; gy += 12) px(ctx, x + WALL, gy, w - WALL * 2, 1, "#c2c7d2");
+    px(ctx, x + w / 2 - 11, y + h - WALL, 22, WALL, "#a7adbb"); // doorway
+    for (let i = 0; i < 4; i++) px(ctx, x + 14 + i * 32, y + 1, 18, 3, night ? "#9ff2ff" : "#7fb2e6"); // windows
+    // bed with a pillow and blanket (and the astronaut tucked in when asleep)
+    px(ctx, BED.x, BED.y, BED.w, BED.h, INK);
+    px(ctx, BED.x + 1, BED.y + 1, BED.w - 2, BED.h - 2, "#f2f4f8");
+    px(ctx, BED.x + 2, BED.y + 3, 8, BED.h - 6, "#ffffff");
+    if (sleeping) {
+      px(ctx, BED.x + 3, BED.y + 5, 7, 7, INK); // helmet on the pillow
+      px(ctx, BED.x + 4, BED.y + 6, 5, 5, "#f2f4f8");
+      px(ctx, BED.x + 5, BED.y + 7, 3, 3, "#1b2a6b");
+    }
+    px(ctx, BED.x + 11, BED.y + 2, BED.w - 13, BED.h - 4, p.accent2);
+    px(ctx, BED.x + 11, BED.y + 2, 2, BED.h - 4, p.accent);
+    if (sleeping) px(ctx, BED.x + 15, BED.y + 5, BED.w - 19, BED.h - 10, "rgba(255,255,255,0.18)"); // body under the blanket
+    // lockers
+    px(ctx, LOCKERS.x, LOCKERS.y, LOCKERS.w, LOCKERS.h, INK);
+    for (let i = 0; i < 4; i++) {
+      px(ctx, LOCKERS.x + 1 + i * 10, LOCKERS.y + 1, 8, LOCKERS.h - 2, "#c3c8d4");
+      px(ctx, LOCKERS.x + 7 + i * 10, LOCKERS.y + 4, 1, 2, INK);
+    }
+    // heater: fins glow bright right after you turn it up
+    px(ctx, HEATER.x, HEATER.y, HEATER.w, HEATER.h, INK);
+    px(ctx, HEATER.x + 1, HEATER.y + 1, HEATER.w - 2, HEATER.h - 2, "#6b7080");
+    for (let i = 0; i < 6; i++) px(ctx, HEATER.x + 2 + i * 4, HEATER.y + 2, 2, HEATER.h - 4, pulse.habitat > 0 ? "#ffb35a" : "#c46a3a");
+    // table with a food pouch, and two stools
+    px(ctx, TABLE.x, TABLE.y, TABLE.w, TABLE.h, INK);
+    px(ctx, TABLE.x + 1, TABLE.y + 1, TABLE.w - 2, TABLE.h - 2, "#e3e7ef");
+    px(ctx, TABLE.x + 4, TABLE.y + 4, 5, 4, AMBER);
+    px(ctx, TABLE.x - 6, TABLE.y + 4, 4, 6, INK);
+    px(ctx, TABLE.x + TABLE.w + 2, TABLE.y + 4, 4, 6, INK);
+    // storm shelter: thick walls and a radiation sign
+    const R2 = SHELTER_ROOM;
+    px(ctx, R2.x, R2.y, R2.w, R2.h, INK);
+    px(ctx, R2.x + 4, R2.y + 4, R2.w - 8, R2.h - 8, "#56607a");
+    const sx = R2.x + R2.w / 2 - 6;
+    px(ctx, sx, R2.y + 7, 12, 12, AMBER);
+    px(ctx, sx + 5, R2.y + 12, 2, 2, INK);
+    px(ctx, sx + 5, R2.y + 8, 2, 3, INK);
+    px(ctx, sx + 1, R2.y + 15, 3, 2, INK);
+    px(ctx, sx + 8, R2.y + 15, 3, 2, INK);
+    if (hidden) {
+      // the astronaut waits out the storm in here
+      const save = { x: player.x, y: player.y, f: player.facing, m: player.moving };
+      player.x = R2.x + R2.w / 2;
+      player.y = R2.y + R2.h - 6;
+      player.facing = "down";
+      player.moving = false;
+      drawPlayer();
+      player.x = save.x;
+      player.y = save.y;
+      player.facing = save.f;
+      player.moving = save.m;
+    }
   }
 
   // ----- rat lab: three cages behind a window, and a thick shielded room for storms -----
@@ -1602,6 +1728,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   function drawScreenText() {
     screen.setTransform(1, 0, 0, 1, 0, 0);
     for (const id of STATION_IDS) {
+      if (id === "bed" && !insideBase()) continue; // the bed label only shows inside
       const info = stationInfo[id];
       const r = STATIONS[id].rect;
       const s = toScreen(r.x + r.w / 2, r.y);
@@ -1620,7 +1747,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
         bg: "rgba(4,40,24,0.9)", fg: "#7dffb0", border: "#7dffb0", size: 11,
       });
     }
-    if (!hidden) {
+    if (!hidden && !sleeping) {
       const ps = toScreen(player.x, player.y - 17);
       tag(ps.x, ps.y - 4, name.toUpperCase() || "ASTRONAUT", { bg: "rgba(2,6,13,0.85)", fg: "#ffffff", border: "rgba(59,232,255,0.6)", size: 10 });
     }
@@ -1634,7 +1761,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     }
     if (near && !paused && !roverNear()) {
       const info = stationInfo[near];
-      const r = STATIONS[near].rect;
+      const r = reachRect(near);
       const s = toScreen(r.x + r.w / 2, r.y);
       const bounce = Math.round(Math.sin(t * 5) * 2);
       const blockedNow = !!info?.blocked;
@@ -1692,6 +1819,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     light(DISH.x + DISH.w / 2, DISH.y + 4, 18, 0.8);
     light(rover.x + rover.face * 8, rover.y - 6, 22, 0.7); // rover headlights
     light(LAB.x + LAB.w / 2, LAB.y + LAB.h / 2, 44, 0.75);
+    if (insideBase() || sleeping) light(HAB.x + HAB.w / 2, HAB.y + HAB.h / 2, 84, sleeping ? 0.35 : 0.9); // room lights
     if (beaconOn) light(MAST.x + 3, MAST.y - 12, 40, 0.9);
     octx.globalAlpha = 1;
     octx.globalCompositeOperation = "source-over";
@@ -1823,7 +1951,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     drawDock();
 
     const items: { y: number; draw: () => void }[] = [
-      { y: HAB.y + HAB.h, draw: drawHabitat },
+      insideBase() || sleeping ? { y: HAB.y, draw: drawBaseInside } : { y: HAB.y + HAB.h, draw: drawHabitat },
       { y: SOLAR.y + SOLAR.h, draw: drawSolar },
       { y: GREEN.y + GREEN.h, draw: drawGreenhouse },
       { y: RECYC.y + RECYC.h, draw: drawRecycler },
@@ -1833,7 +1961,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       { y: rover.y, draw: drawRover },
       { y: LAB.y + LAB.h, draw: drawLab },
     ];
-    if (!hidden && !inGreenhouse() && !inLab()) items.push({ y: player.y, draw: drawPlayer });
+    if (!hidden && !sleeping && !inGreenhouse() && !inLab()) items.push({ y: player.y, draw: drawPlayer });
     items.sort((a, b) => a.y - b.y).forEach((i) => i.draw());
     drawShip();
     drawBroken();
@@ -1894,6 +2022,15 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     setProgress(p) { progress = p; },
     setPanelDust(d) { panelDust = clamp(d, 0, 1); },
     setRats(r) { rats = r; },
+    setSleeping(on) {
+      if (on === sleeping) return;
+      sleeping = on;
+      target = null;
+      route = [];
+      pendingUse = null;
+      if (on) place(STATIONS.bed.spot); // climb into bed
+      zzzAt = 0;
+    },
     playFix(id, tool) {
       target = null;
       route = [];
@@ -1925,9 +2062,10 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     },
     isSprinting: () => sprinting,
     goUse(id) {
-      if (paused || hidden) return;
+      if (paused || hidden || sleeping) return;
       if (near === id) return interact(id);
-      walkTo(STATIONS[id].spot.x, STATIONS[id].spot.y);
+      const sp = spotOf(id);
+      walkTo(sp.x, sp.y);
       pendingUse = target ? id : null;
     },
     feedback(id, items) {

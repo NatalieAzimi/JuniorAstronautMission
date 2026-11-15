@@ -8,7 +8,7 @@
 // =====================================================================
 
 import {
-  BREAKDOWN, COMMS, FACTS_EVERY, FAULTS, MISSION, OUTSIDE_TEMP, PARTS, RADIATION, RATES, RATS, START, TASKS, TEMP,
+  BREAKDOWN, COMMS, FACTS_EVERY, FAULTS, MISSION, OUTSIDE_TEMP, PARTS, RADIATION, RATES, RATS, SLEEP, START, TASKS, TEMP,
 } from "./config";
 import type { Dest, Effects, PartId, StationId, SystemId, TaskId } from "./config";
 import { factsFor } from "./facts";
@@ -62,6 +62,9 @@ export type Sim = {
   factPool: string[];
   sheltering: boolean;
   rats: { health: number; fedToday: boolean; shielded: boolean; exposedSecs: number }; // the rat lab
+  sleeping: boolean; //     asleep in bed: the night runs faster
+  sleptTonight: boolean;
+  restMul: number; //       job time today: rested 0.8, normal 1, tired 1.2
   task: { id: TaskId; station: StationId; left: number; total: number } | null;
   call: { arrivesAt: number } | null;
   oneWayLabel: string;
@@ -192,6 +195,7 @@ export function newSim(dest: Dest, weather: SpaceWeather, seed = Date.now()): Si
     facts: [], factPool: shuffle(rnd, factsFor(dest).map((f) => f.id)),
     sheltering: false, task: null, call: null,
     rats: { health: RATS.start, fedToday: false, shielded: false, exposedSecs: 0 },
+    sleeping: false, sleptTonight: false, restMul: 1,
     oneWayLabel, roundTripSec,
     beaconOn: false, overtime: -1, blackout: false,
     status: "playing", ending: null, failMeter: null, failWhy: [],
@@ -221,6 +225,18 @@ function startDay(s: Sim, day: number) {
   s.sick = false;
   s.stormDose = 0; // the storm meter starts fresh each day
   s.rats.fedToday = false; // the lab rats need food every day
+  if (day > 1) {
+    s.restMul = s.sleptTonight ? SLEEP.restedMul : SLEEP.tiredMul;
+    toast(
+      s,
+      s.sleptTonight
+        ? "☀️ Good morning! You slept well, so jobs are faster today."
+        : "🥱 You didn't sleep last night, so jobs take longer today.",
+      s.sleptTonight ? "good" : "warn",
+    );
+  }
+  s.sleeping = false;
+  s.sleptTonight = false;
   if (day > 1) s.solarEff = Math.max(0.3, s.solarEff - RATES.dustPerDay[s.dest]);
 
   const script = dayScript(s.dest, day);
@@ -251,6 +267,9 @@ function startDay(s: Sim, day: number) {
 }
 
 // ---------- Facts ----------
+// Just the first sentence of a fact (cards stay short; the Fact Book has the rest)
+const firstSentence = (t: string) => (t.match(/^.*?[.!?](\s|$)/)?.[0] ?? t).trim();
+
 // The rover found something: unlock the next fact and show it on a card
 export function roverFact(s: Sim) {
   if (s.status !== "playing") return;
@@ -266,7 +285,7 @@ export function roverFact(s: Sim) {
     kind: "event",
     kicker: "🤖 ROVER DISCOVERY",
     title: f.title,
-    lines: [f.text, `Source: ${f.credit}`, "📘 Saved to your Fact Book (press E)."],
+    lines: [f.kid ?? firstSentence(f.text), "📘 Saved in your Fact Book (E)"], // short for young readers; the full fact + source is in the book
   });
 }
 
@@ -302,6 +321,12 @@ export function stationAction(s: Sim, st: StationId): StationAction {
     if (s.rats.fedToday) return { kind: "blocked", verb: "RATS ARE FED", reason: "The rats already ate today. Come back tomorrow!" };
     return { kind: "task", task: "feedRats", verb: TASKS.feedRats.verb };
   }
+  if (st === "bed") {
+    if (s.sleeping) return { kind: "blocked", verb: "SLEEPING", reason: "Zzz…" };
+    if (s.storm.phase !== "none") return { kind: "blocked", verb: TASKS.sleep.verb, reason: "No sleeping in a radiation storm! Get to the shelter." };
+    if (isDaylight(s)) return { kind: "blocked", verb: TASKS.sleep.verb, reason: "It's daytime! Go to bed after sunset." };
+    return { kind: "task", task: "sleep", verb: TASKS.sleep.verb };
+  }
   const sys = st === "beacon" ? null : (st as SystemId);
   if (sys && s.broken[sys]) return { kind: "repair", system: sys, verb: `REPAIR: ${FAULTS[sys].name.toUpperCase()}` };
 
@@ -334,7 +359,7 @@ export function startTask(s: Sim, st: StationId): StationAction {
     if (a.kind === "blocked") toast(s, a.reason, "warn");
     return a;
   }
-  const secs = TASKS[a.task].secs * (s.sick ? 2 : 1);
+  const secs = TASKS[a.task].secs * (s.sick ? 2 : 1) * s.restMul;
   s.task = { id: a.task, station: st, left: secs, total: secs };
   return a;
 }
@@ -353,6 +378,14 @@ function finishTask(s: Sim) {
   const tk = s.task!;
   s.task = null;
   const def = TASKS[tk.id];
+  if (tk.id === "sleep") {
+    s.sleeping = true;
+    s.sleptTonight = true;
+    toast(s, "😴 Good night! The night passes quickly while you sleep.", "info");
+    note(s, "🛏️ Went to sleep.");
+    if (!s.facts.includes("sleep-85")) unlockFact(s, "sleep-85");
+    return;
+  }
   if (tk.id === "shelter") {
     s.sheltering = true;
     s.done.sheltered = true;
@@ -674,6 +707,7 @@ export type TickInput = { sprinting: boolean };
 
 export function tick(s: Sim, dt: number, input: TickInput) {
   if (s.status !== "playing") return;
+  if (s.sleeping) dt *= SLEEP.speed; // the night passes faster while you sleep
   s.t += dt;
   s.elapsed += dt;
 
@@ -797,6 +831,9 @@ export function tick(s: Sim, dt: number, input: TickInput) {
   }
 
   // --- Fail?
+  // Alarm: wake up if something needs attention
+  if (s.sleeping && (s.oxygen < 20 || s.food < 10 || s.tempC < TEMP.danger || s.blackout || s.storm.phase !== "none" || s.overtime >= 0))
+    wakeUp(s, "⏰ Alarm! Something needs your attention, so you woke up.");
   if (s.oxygen <= 0) return fail(s, "oxygen");
   if (s.food <= 0) return fail(s, "food");
   if (s.tempC <= TEMP.fail) return fail(s, "temp");
@@ -819,6 +856,13 @@ export function tick(s: Sim, dt: number, input: TickInput) {
       toast(s, "🚀 The rescue ship is here but can't find the landing pad! Power the beacon!", "bad");
     }
   }
+}
+
+// ---------- Sleep ----------
+export function wakeUp(s: Sim, why?: string) {
+  if (!s.sleeping) return;
+  s.sleeping = false;
+  toast(s, why ?? "You woke up early. You can go back to bed until morning.", why ? "warn" : "info");
 }
 
 // ---------- Rat lab ----------
@@ -914,6 +958,7 @@ export function narratorHint(s: Sim): string {
   if (s.storm.phase === "warning" && !s.sheltering) return "A storm is coming! Run to the habitat and hide in the shelter.";
   if (s.storm.phase === "active" && !s.sheltering) return "You're out in a radiation storm! Get to the shelter in the habitat!";
   if (s.sheltering) return "You're safe in the shelter. Wait for the storm to pass.";
+  if (s.sleeping) return "Zzz… You're asleep and the night is passing fast. Press any key to wake up.";
   if (s.overtime >= 0) return "The ship can't find you! Power the landing beacon NOW!";
   const broken = (Object.keys(s.broken) as SystemId[]).find((id) => isBroken(s, id));
   if (s.oxygen < 25) return "Oxygen is low! Recycle the air or run the greenhouse.";
@@ -924,6 +969,8 @@ export function narratorHint(s: Sim): string {
   if (s.battery < 25 && !isDaylight(s)) return "Your battery is low and the panels are dark. What matters most?";
   if (dayPhase(s) > MISSION.sunset - 0.12 && dayPhase(s) < MISSION.sunset) return "Sunset is coming. Charge up before the panels go dark.";
   if (!s.rats.fedToday && dayPhase(s) > 0.35) return "The lab rats are hungry. Feed them at the rat lab (key 8).";
+  if (!isDaylight(s) && !s.sleptTonight && s.day < MISSION.days)
+    return "It's night. Go inside the base and sleep in your bed: the night passes faster and you'll be rested.";
   if (s.solarEff < 0.7) return "The solar panels are dusty. Cleaning them gives you more power.";
   if (s.tempC < TEMP.goalMin) return "The cabin is chilly. Turn up the heater when you can afford the battery.";
   return "All systems steady. Pick your next job. Every choice costs something!";
@@ -953,6 +1000,7 @@ export function objectives(s: Sim): Objective[] {
     o.push({ text: "Stay safe from the big storm 🛡️", done: !!d.storm2 && s.stormDose < RADIATION.sickAt });
     o.push({ text: "Survive until the ship lands 🚀", done: false });
   }
+  if (day < MISSION.days) o.push({ text: "Sleep in your bed at night 🛏️", done: s.sleptTonight });
   o.push({ text: "Feed the lab rats 🐀", done: s.rats.fedToday });
   if (day === 2 || day === 5)
     o.push({ text: "Shield the lab rats from the storm 🐀🛡️", done: !!d[`ratsSafe${day}`] || (s.rats.shielded && s.rats.exposedSecs < 1) });
