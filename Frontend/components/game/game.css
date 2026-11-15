@@ -302,6 +302,9 @@
 .og-mlabel { font-size: 0.5em; letter-spacing: 0.12em; color: #9eeefc; }
 .og-mval { font-size: 0.75em; color: #fff; }
 .og-meter.low .og-mval { color: #ff9d95; }
+/* stamina refills in seconds, so it moves quickly and doesn't sound the alarm */
+.og-meter.stamina .og-fill { transition: height 0.2s linear; }
+.og-meter.stamina.low .og-cell { animation: none; border-color: #d8f8ff; }
 
 /* ---------- End-of-mission card ---------- */
 .og-end {
