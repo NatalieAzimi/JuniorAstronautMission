@@ -12,7 +12,11 @@
 //     cached labels and lights, 30 fps cap in low mode
 // =========================================================
 
+<<<<<<< HEAD
 export type StationId = "habitat" | "greenhouse" | "recycle" | "conserve" | "solar" | "comms" | "beacon";
+=======
+export type StationId = "greenhouse" | "conserve" | "recycle"| "comms"| "solar array"| "shield";
+>>>>>>> 75304b9479af4cd00ba66c6c7c6fdd275bd23edd
 export type WorldDest = "moon" | "mars";
 export type FloatText = { text: string; color: string };
 export type OutpostStatus = { power: number; oxygen: number; food: number };
@@ -68,6 +72,7 @@ const GREEN = R(5, 15, 10, 7);
 const RECYC = R(31, 14, 6, 5);
 const BATT = R(32, 4, 6, 4);
 const DISH = R(21, 20, 3, 3);
+<<<<<<< HEAD
 const PAD = R(34, 21, 8, 6);
 const MAST = { x: PAD.x + PAD.w - 14, y: PAD.y + 4, w: 8, h: 10 };
 const SOLIDS = [HAB, SOLAR, GREEN, RECYC, BATT, DISH, MAST];
@@ -83,6 +88,56 @@ const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; 
 };
 const STATION_IDS = Object.keys(STATIONS) as StationId[];
 
+=======
+const SOLIDS = [HAB, SOLAR, GREEN, RECYC, BATT, DISH]; //base, solar panel, greenhouse, recycler, battery bank, comms?
+
+const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; label: string; verb: string }> = {
+  greenhouse: {
+    rect: GREEN,
+    spot: { x: GREEN.x + GREEN.w + 10, y: GREEN.y + GREEN.h / 2 + 8 },
+    label: "GREENHOUSE",
+    verb: "RUN GREENHOUSE",
+  },
+  recycle: {
+    rect: RECYC,
+    spot: { x: RECYC.x - 10, y: RECYC.y + RECYC.h / 2 + 8 },
+    label: "AIR RECYCLER",
+    verb: "RECYCLE AIR",
+  },
+  conserve: {
+    rect: BATT,
+    spot: { x: BATT.x + BATT.w / 2, y: BATT.y + BATT.h + 14 },
+    label: "BATTERY BANK",
+    verb: "CONSERVE POWER",
+  },
+  comms: {
+    rect: DISH,
+    spot: { x: DISH.x - 10, y: DISH.y },
+    label: " COMMS · EARTH",
+    verb: "CALL HOME"
+  },
+  "solar array": {
+    rect: SOLAR,
+    spot: {x: SOLAR.x+SOLAR.w+10, y: SOLAR.y+SOLAR.h /2 +8},
+    label: "SOLAR ARRAY",
+    verb: "CLEAN PANELS"
+  },
+  shield: {
+    rect: HAB,
+    spot: {x:HAB.x-10, y:HAB.y+HAB.h/2+8},
+    label: "",
+    verb: "SHIELD BASE"
+  }
+};
+const STATION_IDS = Object.keys(STATIONS) as StationId[];
+
+const DECOR_LABELS: { rect: Rect; label: string }[] = [
+  { rect: HAB, label: "HABITAT" },
+  //{ rect: SOLAR, label: "SOLAR ARRAY" },
+  //{ rect: DISH, label: "" },
+];
+
+>>>>>>> 75304b9479af4cd00ba66c6c7c6fdd275bd23edd
 // ---------- Colours ----------
 const PAL = {
   mars: {
@@ -464,8 +519,18 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   let cam = { x: 0, y: 0 };
   let t = 0;
   const keys = new Set<string>();
+<<<<<<< HEAD
   const pulse: Record<StationId, number> = { habitat: 0, greenhouse: 0, conserve: 0, recycle: 0, solar: 0, comms: 0, beacon: 0 };
   const floats: { x: number; y: number; text: string; color: string; age: number }[] = [];
+=======
+  const pulse: Record<StationId, number> = {
+    greenhouse: 0, conserve: 0, recycle: 0,
+    comms: 0,
+    "solar array": 0,
+    shield: 0
+  };
+  const floats: { x: number; y: number; text: string; color: string; age: number; delay: number }[] = [];
+>>>>>>> 75304b9479af4cd00ba66c6c7c6fdd275bd23edd
   const parts: { x: number; y: number; vx: number; vy: number; life: number; max: number; c: string; s: number }[] = [];
   const dust: { x: number; y: number; v: number }[] = [];
   for (let i = 0; i < 70; i++) dust.push({ x: Math.random(), y: Math.random(), v: 0.5 + Math.random() });

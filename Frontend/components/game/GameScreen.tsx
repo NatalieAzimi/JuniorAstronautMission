@@ -32,6 +32,7 @@ import SettingsMenu from "@/components/menus/SettingsMenu";
 import { play } from "@/lib/sfx";
 import "./game.css";
 
+<<<<<<< HEAD
 // Hotbar: keys 1–7 walk to that station and use it
 const SLOTS: { id: StationId; key: string; icon: string; label: string; task: TaskId }[] = [
   { id: "habitat", key: "1", icon: "🔥", label: "HEATER", task: "heater" },
@@ -41,6 +42,15 @@ const SLOTS: { id: StationId; key: string; icon: string; label: string; task: Ta
   { id: "solar", key: "5", icon: "🧹", label: "CLEAN PANELS", task: "clean" },
   { id: "comms", key: "6", icon: "📡", label: "CALL HOUSTON", task: "call" },
   { id: "beacon", key: "7", icon: "🚨", label: "BEACON", task: "beacon" },
+=======
+// Each hotbar slot is one of the real game actions.
+// The station ids in the world match the Action names in gameLogic.ts.
+const SLOTS: { id: Action; key: string; icon: string; label: string; up: string[]; down: string[] }[] = [
+  { id: "greenhouse", key: "1", icon: "🌱", label: "GREENHOUSE", up: ["FOOD", "O₂"], down: ["PWR"] },
+  { id: "recycle", key: "2", icon: "💨", label: "RECYCLE AIR", up: ["O₂"], down: ["PWR"] },
+  { id: "conserve", key: "3", icon: "🔋", label: "CONSERVE", up: ["PWR"], down: [] },
+  { id: "shield", key:"4", icon: "S", label: "SHIELD", up:["Dur"], down:["PWR"]}
+>>>>>>> 75304b9479af4cd00ba66c6c7c6fdd275bd23edd
 ];
 const STATIONS: StationId[] = SLOTS.map((s) => s.id);
 

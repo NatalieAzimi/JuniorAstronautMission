@@ -89,7 +89,7 @@ export function whyEvacuated(game: Game): { reason: string; tip: string } | null
     };
   }
   if (m.food <= 0) {
-    return { reason: "The food ran out.", tip: "Tend the greenhouse so the crew keeps having food." };
+    return { reason: "The food ran out.", tip: "Tend the greenhouse for more." };
   }
   return {
     reason: "The radiation shielding wore out.",
