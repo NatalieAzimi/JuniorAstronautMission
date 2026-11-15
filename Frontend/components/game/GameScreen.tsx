@@ -15,18 +15,19 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MISSION, RADIATION, RATS, TASKS, TEMP, radiationSpeed } from "@/lib/mission/config";
+import { MISSION, RADIATION, RATS, ROCKS, TASKS, TEMP, radiationSpeed } from "@/lib/mission/config";
 import type { Dest, PartId, StationId, SystemId, TaskId } from "@/lib/mission/config";
 import type { Apod, SpaceWeather } from "@/lib/mission/nasaData";
 import {
   choose, clockLabel, cToF, dayPhase, dismissCard, isBroken, newSim, objectives, outsideTempC,
-  repair, roverFact, snapshot, wakeUp, solarOutput, startTask, stationAction, sunLevel, tasksToNextFact, tick,
+  repair, roverFact, snapshot, wakeUp, collectRock, solarOutput, startTask, stationAction, sunLevel, tasksToNextFact, tick,
 } from "@/lib/mission/sim";
 import type { Card, Diff, RepairMode, Sim, Toast } from "@/lib/mission/sim";
 import { createOutpost, guessQuality } from "./outpostEngine";
 import type { FloatText, Outpost, Quality, StationInfo } from "./outpostEngine";
 import EventCard from "./EventCard";
 import RepairGame from "./RepairGame";
+import SimEnded from "./SimEnded";
 import InventoryPanel from "@/components/menus/InventoryPanel";
 import type { Tab as InvTab } from "@/components/menus/InventoryPanel";
 import { play } from "@/lib/sfx";
@@ -132,6 +133,10 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
   const [toasts, setToasts] = useState<(Toast & { born: number })[]>([]);
   const [near, setNear] = useState<string | null>(null);
   const [quality, setQuality] = useState<Quality>("high");
+  const [rocks, setRocks] = useState({ got: 0, total: 8 }); // space rocks picked up
+  const [partyDone, setPartyDone] = useState(false); //       rescue party finished → show the end card
+  const [simDone, setSimDone] = useState(false); //           lost: "training sim ended" scene finished
+  const finishSim = useCallback(() => setSimDone(true), []);
 
   // live values for callbacks that outlive renders
   const live = useRef({ paused, menu, card, repairing });
@@ -242,6 +247,12 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
         if (station) activateStation(station);
       },
       onQuality: (quality) => setQuality(quality),
+      onRock: (got, total) => {
+        setRocks({ got, total });
+        collectRock(sim, got, total);
+        play("fixed");
+        return `+${ROCKS.oxygen} OXYGEN`;
+      },
       onRover: () => {
         roverFact(sim); // the rover's "!" → a fun fact card
         play("fact");
@@ -281,7 +292,8 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const anyOverlay = paused || menu !== "none" || !!card || !!repairing || hud.status !== "playing";
+  const showEnd = (hud.status === "lost" && simDone) || partyDone;
+  const anyOverlay = paused || menu !== "none" || !!card || !!repairing || (hud.status !== "playing" && showEnd);
   useEffect(() => engine.current?.setPaused(anyOverlay), [anyOverlay]);
 
   // win / lose
@@ -291,6 +303,8 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
     if (hud.status === "won") {
       engine.current?.setLanding(true);
       play("win");
+      // let the ship land and the party play before the end card appears
+      window.setTimeout(() => setPartyDone(true), 9000); // ship lands (4 s) + 5 s of party
     } else play("lose");
   }, [hud]);
 
@@ -557,7 +571,8 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
         />
       )}
 
-      {ended && menu === "none" && (
+      {hud.status === "lost" && !simDone && <SimEnded name={name} onDone={finishSim} />}
+      {ended && showEnd && menu === "none" && (
         <div className="og-end">
           <div className={`og-endcard og-frame ${hud.ending}`}>
             <p className="og-kicker">
@@ -582,6 +597,10 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
               <li>☢ {hud.dose.toFixed(1)} mSv total radiation</li>
               <li>📘 {hud.facts} facts collected</li>
               <li>🐀 Lab rats {Math.round(hud.rats.health)}% healthy{hud.rats.health >= RATS.bonusAt ? " · 🔬 SCIENCE BONUS!" : ""}</li>
+              <li>
+                🪨 {rocks.got}/{rocks.total} space rocks{rocks.got === rocks.total ? " · 🏅 ROCK HOUND!" : ""} ·{" "}
+                {dest === "moon" ? "Apollo astronauts brought 382 kg of Moon rocks home!" : "Perseverance is saving Mars rocks for a trip to Earth!"}
+              </li>
             </ul>
             {hud.ending === "failed" && <p className="why">Failure is a lesson, not a punishment. Real mission planners test ideas again and again.</p>}
             <div className="og-endbtns">

@@ -168,6 +168,12 @@ export const TASKS: Record<
   },
 };
 
+// ---------- Space rocks to collect ----------
+export const ROCKS = {
+  oxygen: 5, // GAME  oxygen you get from each rock
+  // REAL: lunar regolith is about 40-45% oxygen by weight, locked inside minerals (ESA 2019; NASA CaRD)
+};
+
 // ---------- Sleep (bed inside the base) ----------
 export const SLEEP = {
   realSeconds: 7, // GAME  a night's sleep always takes about 7 real seconds (the rest of the night speeds by)
