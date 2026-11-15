@@ -15,6 +15,8 @@
 export type StationId = "habitat" | "greenhouse" | "recycle" | "conserve" | "solar" | "comms" | "beacon";
 export type WorldDest = "moon" | "mars";
 export type FloatText = { text: string; color: string };
+// A little cut-scene that plays while a job runs. setProgress() moves it along.
+export type Scene = "harvest" | "shelter" | null;
 export type OutpostStatus = { power: number; oxygen: number; food: number };
 export type Quality = "high" | "low";
 export type StationInfo = { verb: string; broken: boolean; blocked: boolean };
@@ -41,6 +43,7 @@ export type Outpost = {
   setPaused(p: boolean): void;
   setHidden(h: boolean): void; // astronaut is inside the storm shelter
   setProgress(p: number | null): void; // task progress ring 0..1
+  setScene(s: Scene): void; // "harvest" = walk into the greenhouse and pick plants, "shelter" = walk into the habitat
   setCanSprint(on: boolean): void;
   setSpeedMul(m: number): void;
   setBeacon(on: boolean): void;
@@ -440,6 +443,13 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   let paused = false;
   let hidden = false;
   let progress: number | null = null;
+  // ----- job scenes (harvest, shelter) -----
+  type ScenePoint = { p: number; x: number; y: number; face?: Facing; pick?: { c: number; at: number; done: boolean } };
+  let scene: Scene = null;
+  let sceneOk = false; // false = the astronaut wasn't by the door, so only the progress ring shows
+  let scenePath: ScenePoint[] = [];
+  let restoreAt = 0; // after walking into the shelter: step back out if the shelter didn't happen
+  const picked = new Map<number, number>(); // greenhouse plant (row*10+col) → time it has regrown
   let canSprint = true;
   let speedMul = 1;
   let beaconOn = false;
@@ -579,6 +589,14 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
 
   // ----- movement with collision -----
   function step(dt: number) {
+    if (restoreAt && t > restoreAt) {
+      restoreAt = 0;
+      if (!hidden) place(STATIONS.habitat.spot);
+    }
+    if (sceneOk && progress !== null) {
+      runScene(dt);
+      return;
+    }
     const k = keys;
     let dx = (k.has("arrowright") || k.has("d") ? 1 : 0) - (k.has("arrowleft") || k.has("a") ? 1 : 0);
     let dy = (k.has("arrowdown") || k.has("s") ? 1 : 0) - (k.has("arrowup") || k.has("w") ? 1 : 0);
@@ -645,6 +663,112 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       opts.onNear?.(near);
     }
   }
+
+  // ----- job scenes -----
+  function place(spot: { x: number; y: number }) {
+    player.x = spot.x;
+    player.y = spot.y;
+    player.facing = "down";
+    player.moving = false;
+  }
+
+  // Turn a list of stops into timed points. "wait" = share of the job spent standing still there.
+  function planScene(stops: { x: number; y: number; wait?: number; face?: Facing; pickCol?: number }[]): ScenePoint[] {
+    let dist = 0;
+    for (let i = 1; i < stops.length; i++) dist += Math.hypot(stops[i].x - stops[i - 1].x, stops[i].y - stops[i - 1].y);
+    const waits = stops.reduce((a, st) => a + (st.wait ?? 0), 0);
+    const walk = Math.max(0.05, 1 - waits);
+    const out: ScenePoint[] = [];
+    let p = 0;
+    stops.forEach((st, i) => {
+      if (i > 0) p += (walk * Math.hypot(st.x - stops[i - 1].x, st.y - stops[i - 1].y)) / (dist || 1);
+      out.push({ p, x: st.x, y: st.y });
+      if (st.wait) {
+        const pick = st.pickCol === undefined ? undefined : { c: st.pickCol, at: p + st.wait * 0.6, done: false };
+        p += st.wait;
+        out.push({ p, x: st.x, y: st.y, face: st.face, pick });
+      }
+    });
+    return out;
+  }
+
+  function startScene(sc: Exclude<Scene, null>) {
+    target = null;
+    route = [];
+    pendingUse = null;
+    const from = { x: player.x, y: player.y };
+    if (sc === "harvest") {
+      const { x, y, w } = GREEN;
+      if (player.x < x + w) return; // not on the door side
+      const aisle = y + 51; // walk in through the door, just above the third row of plants
+      const a = 4 + Math.floor(Math.random() * 3); // two plants near the door (columns 2..6)
+      const b = a - 1 - Math.floor(Math.random() * 2);
+      const col = (c: number) => x + 18 + c * 20;
+      scenePath = planScene([
+        from,
+        { x: x + w + 4, y: aisle },
+        { x: col(a), y: aisle, wait: 0.14, face: "down", pickCol: a },
+        { x: col(b), y: aisle, wait: 0.14, face: "down", pickCol: b },
+        { x: x + w + 4, y: aisle },
+        STATIONS.greenhouse.spot,
+      ]);
+    } else {
+      if (player.y < HAB.y + HAB.h) return; // not in front of the habitat
+      const spot = STATIONS.habitat.spot;
+      scenePath = planScene([from, spot, { x: spot.x, y: HAB.y + HAB.h - 3 }]);
+    }
+    sceneOk = true;
+  }
+
+  function endScene(was: Exclude<Scene, null>) {
+    if (was === "harvest") place(STATIONS.greenhouse.spot);
+    else restoreAt = t + 0.5;
+  }
+
+  function runScene(dt: number) {
+    const p = clamp(progress ?? 0, 0, 1);
+    const k = scenePath;
+    let i = 0;
+    while (i < k.length - 2 && p > k[i + 1].p) i++;
+    const a = k[i];
+    const b = k[i + 1] ?? a;
+    const f = b.p > a.p ? clamp((p - a.p) / (b.p - a.p), 0, 1) : 1;
+    const nx = a.x + (b.x - a.x) * f;
+    const ny = a.y + (b.y - a.y) * f;
+    const mx = nx - player.x;
+    const my = ny - player.y;
+    player.moving = Math.hypot(mx, my) > 0.05;
+    if (player.moving) {
+      player.walk += dt * 9;
+      if (Math.abs(mx) > Math.abs(my)) player.facing = mx > 0 ? "right" : "left";
+      else player.facing = my > 0 ? "down" : "up";
+    } else if (b.face) player.facing = b.face;
+    player.x = nx;
+    player.y = ny;
+    sprinting = false;
+    // picking: leaves fly while working, the plant becomes a sprout
+    if (!player.moving && b.pick && !paused && Math.random() < dt * 14) leafPop(b.pick.c, 1);
+    for (const q of k) {
+      if (!q.pick || q.pick.done || p < q.pick.at) continue;
+      q.pick.done = true;
+      picked.set(20 + q.pick.c, t + 8);
+      leafPop(q.pick.c, quality === "low" ? 5 : 10);
+    }
+  }
+
+  function leafPop(c: number, n: number) {
+    const lx = GREEN.x + 18 + c * 20;
+    const ly = GREEN.y + 14 + 2 * 24 - 3;
+    for (let j = 0; j < n; j++) {
+      parts.push({
+        x: lx + (Math.random() - 0.5) * 6, y: ly, vx: (Math.random() - 0.5) * 24, vy: -14 - Math.random() * 20,
+        life: 0, max: 0.5 + Math.random() * 0.4, c: Math.random() < 0.25 ? "#ff6a5a" : "#7dffb0", s: Math.random() < 0.3 ? 2 : 1,
+      });
+    }
+  }
+
+  // The astronaut is inside the greenhouse (drawn under the glass roof)
+  const inGreenhouse = () => scene === "harvest" && sceneOk && progress !== null && player.x < GREEN.x + GREEN.w - 1;
 
   // ----- drawing: buildings -----
   function shadow(r: Rect) {
@@ -746,6 +870,13 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
         const cx = x + 18 + c * 20;
         const cy = y + 14 + r * 24;
         const sway = Math.sin(t * 2 + i++) > 0.6 ? 1 : 0;
+        if ((picked.get(r * 10 + c) ?? 0) > t) {
+          // just picked: a little sprout grows back
+          px(ctx, cx - 1, cy + 2, 2, 3, leafD);
+          px(ctx, cx - 2, cy + 1, 1, 1, leaf);
+          px(ctx, cx + 1, cy + 1, 1, 1, leaf);
+          continue;
+        }
         px(ctx, cx - 1, cy + 2, 2, 3, leafD);
         if (stage >= 1 || stage === 0) {
           px(ctx, cx - 3 + sway, cy, 3, 2, leaf);
@@ -764,6 +895,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
         px(ctx, cx - 3 + sway, cy, 1, 1, leafH);
       }
     }
+    if (inGreenhouse()) drawPlayer();
     // glass roof shine
     ctx.fillStyle = "rgba(160,240,255,0.10)";
     ctx.fillRect(x + 5, y + 5, w - 10, h - 10);
@@ -1030,6 +1162,12 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
         size: 10,
       });
     }
+    if (hidden) {
+      const hs = toScreen(HAB.x + HAB.w / 2, HAB.y);
+      tag(hs.x, hs.y - 34, `${name.toUpperCase() || "ASTRONAUT"} IS SHELTERING INSIDE…`, {
+        bg: "rgba(4,40,24,0.9)", fg: "#7dffb0", border: "#7dffb0", size: 11,
+      });
+    }
     if (!hidden) {
       const ps = toScreen(player.x, player.y - 17);
       tag(ps.x, ps.y - 4, name.toUpperCase() || "ASTRONAUT", { bg: "rgba(2,6,13,0.85)", fg: "#ffffff", border: "rgba(59,232,255,0.6)", size: 10 });
@@ -1229,7 +1367,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       { y: DISH.y + DISH.h, draw: drawDish },
       { y: MAST.y + MAST.h, draw: drawMast },
     ];
-    if (!hidden) items.push({ y: player.y, draw: drawPlayer });
+    if (!hidden && !inGreenhouse()) items.push({ y: player.y, draw: drawPlayer });
     items.sort((a, b) => a.y - b.y).forEach((i) => i.draw());
     drawShip();
     drawBroken();
@@ -1278,8 +1416,25 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
         pendingUse = null;
       }
     },
-    setHidden(h) { hidden = h; },
+    setHidden(h) {
+      if (h === hidden) return;
+      if (h) floats.push({ x: HAB.x + HAB.w / 2, y: HAB.y + HAB.h - 4, text: "SAFE INSIDE", color: "#7dffb0", age: 0 });
+      else {
+        restoreAt = 0;
+        place(STATIONS.habitat.spot); // step out of the habitat door
+      }
+      hidden = h;
+    },
     setProgress(p) { progress = p; },
+    setScene(sc) {
+      if (sc === scene) return;
+      const was = scene;
+      const ran = sceneOk;
+      scene = sc;
+      sceneOk = false;
+      if (was && ran) endScene(was);
+      if (sc) startScene(sc);
+    },
     setCanSprint(on) { canSprint = on; },
     setSpeedMul(m) { speedMul = m; },
     setBeacon(on) { beaconOn = on; },
