@@ -351,8 +351,8 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
   const ended = hud.status !== "playing";
 
   const meters = [
-    { cls: "power", label: "BATTERY", v: hud.battery },
-    { cls: "oxygen", label: "OXYGEN", v: hud.oxygen },
+    { cls: "power", label: "BATTERY",  v: hud.battery },
+    { cls: "oxygen", label: "OXYGEN",  v: hud.oxygen },
     { cls: "food", label: "FOOD", v: hud.food },
   ];
 
