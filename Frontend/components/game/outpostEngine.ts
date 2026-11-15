@@ -100,7 +100,7 @@ const HEATER_SPOT = { x: HEATER.x + HEATER.w / 2, y: HEATER.y + HEATER.h + 10 };
 const SOLIDS = [...BASE_WALLS, BED, LOCKERS, HEATER, TABLE, SHELTER_ROOM, COUNTER, SOLAR, GREEN, RECYC, BATT, DISH, MAST, LAB];
 
 const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; label: string }> = {
-  habitat: { rect: HAB, spot: { x: HAB.x + HAB.w / 2, y: HAB.y + HAB.h + 14 }, label: "BASE · HEATER & SHELTER" },
+  habitat: { rect: HAB, spot: { x: HAB.x + HAB.w / 2, y: HAB.y + HAB.h + 14 }, label: "BASE · HEATER" },
   greenhouse: { rect: GREEN, spot: { x: GREEN.x + GREEN.w + 10, y: GREEN.y + GREEN.h / 2 + 8 }, label: "GREENHOUSE" },
   recycle: { rect: RECYC, spot: { x: RECYC.x - 10, y: RECYC.y + RECYC.h / 2 + 8 }, label: "AIR RECYCLER" },
   conserve: { rect: BATT, spot: { x: BATT.x + BATT.w / 2, y: BATT.y + BATT.h + 14 }, label: "BATTERY BANK" },
