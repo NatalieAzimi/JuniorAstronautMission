@@ -85,18 +85,10 @@ const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; 
     verb: "CLEAN PANELS"
   },
   shield: {
-    rect: {
-      x: 0,
-      y: 0,
-      w: 0,
-      h: 0
-    },
-    spot: {
-      x: 0,
-      y: 0
-    },
+    rect: HAB,
+    spot: {x:HAB.x-10, y:HAB.y+HAB.h/2+8},
     label: "",
-    verb: ""
+    verb: "SHIELD BASE"
   }
 };
 const STATION_IDS = Object.keys(STATIONS) as StationId[];
