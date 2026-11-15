@@ -70,7 +70,18 @@ export const RADIATION = {
   sickAt: 50, //             GAME  flight surgeon orders rest above this storm dose
   warnSeconds: 20, //        GAME  warning before the storm hits
   stormSeconds: 30, //       GAME  how long the storm lasts
+  // GAME: a big total dose makes you tired and slow (real radiation sickness
+  // starts around 1000 mSv; scaled down for a 5-day game).
+  slowFrom: 100, //          GAME  below this dose you move at full speed
+  slowMax: 300, //           GAME  at or above this dose you are as slow as it gets
+  slowestSpeed: 0.6, //      GAME  60% walking speed at slowMax
 };
+
+/** Walking-speed multiplier from total radiation dose (1 = full speed). */
+export function radiationSpeed(doseMsv: number) {
+  const t = Math.max(0, Math.min(1, (doseMsv - RADIATION.slowFrom) / (RADIATION.slowMax - RADIATION.slowFrom)));
+  return 1 - t * (1 - RADIATION.slowestSpeed);
+}
 
 // ---------- One-way radio delay ----------
 export const COMMS = {
@@ -90,9 +101,8 @@ export const BREAKDOWN = {
 export const FACTS_EVERY = { min: 2, max: 3 }; // GAME  a new fact every 2–3 tasks
 
 // ---------- Stations & tasks (no free choices) ----------
-export type StationId = "habitat" | "greenhouse" | "recycle" | "conserve" | "solar" | "comms" | "beacon" | "lab";
-export type TaskId =
-  | "heater" | "shelter" | "greenhouse" | "recycle" | "conserve" | "clean" | "call" | "beacon" | "feedRats" | "shieldRats";
+export type StationId = "habitat" | "greenhouse" | "recycle" | "conserve" | "solar" | "comms" | "beacon";
+export type TaskId = "heater" | "shelter" | "greenhouse" | "recycle" | "conserve" | "clean" | "call" | "beacon";
 export type Effects = Partial<{ battery: number; oxygen: number; food: number; tempC: number }>;
 
 export const TASKS: Record<
@@ -139,25 +149,6 @@ export const TASKS: Record<
     effects: { battery: -20 }, needsPower: true,
     teaches: "The rescue ship needs the beacon to find the landing pad.",
   },
-  feedRats: {
-    label: "FEED RATS", verb: "FEED THE LAB RATS", icon: "🐀", secs: 2,
-    effects: { food: -3 }, needsPower: false,
-    teaches: "Animals in space need food, water and care every day, just like astronauts.",
-  },
-  shieldRats: {
-    label: "SHIELD RATS", verb: "MOVE THE RATS TO THE SHIELDED ROOM", icon: "🛡️", secs: 1.5,
-    effects: {}, needsPower: false,
-    teaches: "Space radiation is dangerous for animals too, so they need shielding.",
-  },
-};
-
-// ---------- Rat lab (inspired by NASA's Rodent Research missions on the ISS) ----------
-export const RATS = {
-  start: 100, //          GAME  rat health at the start (%)
-  hungerLoss: 20, //      GAME  health lost at the end of a day they weren't fed
-  stormLossPerSec: 1.2, // GAME  health lost per second while left out in a radiation storm
-  bonusAt: 70, //         GAME  rats this healthy at the end = science bonus
-  // REAL: each ISS Rodent Habitat holds 10 mice or 6 rats for up to 90 days (ISS National Lab)
 };
 
 // ---------- Systems that can break, and the spare part that fixes each ----------
