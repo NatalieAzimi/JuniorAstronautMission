@@ -8,6 +8,7 @@ import type { SpaceWeather } from "@/lib/mission/nasaData";
 import { destinations } from "@/lib/turn-game/destinations";
 import { guessQuality } from "@/components/game/outpostEngine";
 import "./hud.css";
+import { funFacts } from "@/lib/turn-game/funFacts";
 
 type Props = {
   screen: "title" | "name";
@@ -46,6 +47,15 @@ function useEarthClock() {
     return () => clearInterval(id);
   }, []);
   return now ?? "--:--:--";
+}
+function useRotatingFact(dest: Dest) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setI((n) => n + 1), 10000);
+    return () => clearInterval(id);
+  }, [dest]);
+  const list = funFacts[dest];
+  return list[i % list.length];
 }
 
 function Radar({ dest, setDest }: { dest: Dest; setDest: (d: Dest) => void }) {
@@ -154,6 +164,7 @@ function Waveform() {
 
 export default function HomeHud({ screen, dest, setDest, name, setName, onLaunch, onBegin, onSettings, weather }: Props) {
   const d = destinations[dest];
+  const fact = useRotatingFact(dest);
   const clock = useEarthClock();
   const cleanName = name.trim();
   // slow computer → show a still picture instead of the video
@@ -261,7 +272,12 @@ export default function HomeHud({ screen, dest, setDest, name, setName, onLaunch
                   Last Light at Nova Outpost: survive 5 days alone. Balance battery,
                   oxygen, food and heat, fix what breaks, and hide from real solar storms.
                 </p>
-                <p className="hud-blurb">{d.blurb}</p>
+                <p className="hud-blurb" key={fact.text}>
+                    {fact.text}{" "}
+                    <a className="hud-source" href={fact.url} target="_blank" rel="noreferrer">
+                        Source: {fact.source}
+                    </a>
+                </p>
               </>
             ) : (
               <>
