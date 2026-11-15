@@ -1,0 +1,45 @@
+/*
+ * background-music.css
+ * FILE LOCATION: Frontend/components/audio/background-music.css
+ * Styles for the small music on/off button (bottom-right corner).
+ */
+
+.bg-music-toggle {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9999;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(10, 18, 40, 0.75);
+  color: #ffffff;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.bg-music-toggle:hover {
+  background: rgba(30, 50, 100, 0.9);
+}
+
+.bg-music-toggle:active {
+  transform: scale(0.95);
+}
+
+.bg-music-toggle:focus-visible {
+  outline: 3px solid #7cc4ff;
+  outline-offset: 2px;
+}
+
+/* On small phone screens, show only the icon */
+@media (max-width: 480px) {
+  .bg-music-label {
+    display: none;
+  }
+}
