@@ -219,7 +219,7 @@ export default function GameScreen({ dest, name, game, setGame, paused = false, 
             <h2>{game.status === "won" ? `Great work, Commander ${name}! 🎉` : "The outpost went dark"}</h2>
             <p>
               {game.status === "won"
-                ? `Your crew survived all ${cfg.totalTurns} turns on the ${cfg.name}.`
+                ? `You survived all ${cfg.totalTurns} turns on the ${cfg.name}.`
                 : game.lossReason}
             </p>
             <div className="og-endbtns">
