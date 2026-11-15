@@ -400,7 +400,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
       <div className="og-alerts" aria-live="polite">
         {hud.blackout && <p className="og-banner bad">🔌 BLACKOUT! Air &amp; heat are OFF. Conserve power at the battery bank!</p>}
         {hud.storm === "warning" && (
-          <p className="og-banner warn">☢ {hud.flare} FLARE: STORM HITS IN {hud.stormLeft}s → SHELTER IN THE HABITAT</p>
+          <p className="og-banner warn">☢ {hud.flare} FLARE: STORM HITS IN {hud.stormLeft}s → SHELTER IN THE BASE</p>
         )}
         {hud.storm === "active" && (
           <p className="og-banner bad">☢ RADIATION STORM · {hud.stormLeft}s LEFT {hud.sheltering ? "· YOU ARE SAFE" : "· GET TO SHELTER!"}</p>
