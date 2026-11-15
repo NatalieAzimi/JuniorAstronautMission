@@ -127,7 +127,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
   const [invTab, setInvTab] = useState<InvTab>("objectives");
   const [repairing, setRepairing] = useState<SystemId | null>(null);
   const [toasts, setToasts] = useState<(Toast & { born: number })[]>([]);
-  const [near, setNear] = useState<StationId | null>(null);
+  const [near, setNear] = useState<string | null>(null);
   const [quality, setQuality] = useState<Quality>("high");
 
   // live values for callbacks that outlive renders
@@ -231,9 +231,12 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
       dest,
       name,
       quality: q,
-      onNear: setNear,
-      onUse: (id) => activateStation(id),
-      onQuality: setQuality,
+      onNear: (id) => setNear(id),
+      onUse: (id) => {
+        const station = STATIONS.find((candidate) => candidate === id);
+        if (station) activateStation(station);
+      },
+      onQuality: (quality) => setQuality(quality),
       onRover: () => {
         roverFact(sim); // the rover's "!" → a fun fact card
         play("fact");
