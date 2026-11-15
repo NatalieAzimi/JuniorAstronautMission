@@ -84,7 +84,7 @@ const STATION_IDS = Object.keys(STATIONS) as StationId[];
 const DECOR_LABELS: { rect: Rect; label: string }[] = [
   { rect: HAB, label: "HABITAT" },
   { rect: SOLAR, label: "SOLAR ARRAY" },
-  { rect: DISH, label: "COMMS " },
+  { rect: DISH, label: "COMMS · EARTH" },
 ];
 
 // ---------- Colours ----------
