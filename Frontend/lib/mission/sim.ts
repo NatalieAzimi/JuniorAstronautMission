@@ -8,7 +8,11 @@
 // =====================================================================
 
 import {
+<<<<<<< HEAD
   BREAKDOWN, COMMS, FACTS_EVERY, FAULTS, MISSION, OUTSIDE_TEMP, PARTS, RADIATION, RATES, RATS, SLEEP, STAMINA, START, TASKS, TEMP,
+=======
+  BREAKDOWN, COMMS, FACTS_EVERY, FAULTS, MISSION, OUTSIDE_TEMP, PARTS, RADIATION, RATES, RATS, ROCKS, SLEEP, START, TASKS, TEMP,
+>>>>>>> fe0d6dd78c95c02f3c884d50e812b7aa878fddda
 } from "./config";
 import type { Dest, Effects, PartId, StationId, SystemId, TaskId } from "./config";
 import { factsFor } from "./facts";
@@ -876,6 +880,25 @@ export function tick(s: Sim, dt: number, input: TickInput) {
       s.t = MISSION.daySeconds - 0.001;
       toast(s, "🚀 The rescue ship is here but can't find the landing pad! Power the beacon!", "bad");
     }
+  }
+}
+
+// ---------- Space rocks: each one gives a little oxygen (rocks are almost half oxygen inside) ----------
+export function collectRock(s: Sim, got: number, total: number) {
+  if (s.status !== "playing") return;
+  s.oxygen = clamp(s.oxygen + ROCKS.oxygen);
+  note(s, `🪨 Space rock ${got}/${total}: +${ROCKS.oxygen} oxygen`);
+  if (got === 1)
+    toast(
+      s,
+      s.dest === "moon"
+        ? "🪨 Moon rocks are almost half oxygen, locked inside! Every rock gives you a little air."
+        : "🪨 Mars rocks have oxygen locked inside too! Every rock gives you a little air.",
+      "fact",
+    );
+  if (got === total) {
+    s.done.rockHound = true;
+    toast(s, "🏅 ROCK HOUND! You found every space rock!", "good");
   }
 }
 
