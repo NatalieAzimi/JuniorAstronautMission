@@ -101,9 +101,10 @@ export const BREAKDOWN = {
 export const FACTS_EVERY = { min: 2, max: 3 }; // GAME  a new fact every 2–3 tasks
 
 // ---------- Stations & tasks (no free choices) ----------
-export type StationId = "habitat" | "greenhouse" | "recycle" | "conserve" | "solar" | "comms" | "beacon" | "lab";
+export type StationId = "habitat" | "greenhouse" | "recycle" | "conserve" | "solar" | "comms" | "beacon" | "lab" | "bed";
 export type TaskId =
-  | "heater" | "shelter" | "greenhouse" | "recycle" | "conserve" | "clean" | "call" | "beacon" | "feedRats" | "shieldRats";
+  | "heater" | "shelter" | "greenhouse" | "recycle" | "conserve" | "clean" | "call" | "beacon" | "feedRats" | "shieldRats"
+  | "sleep";
 export type Effects = Partial<{ battery: number; oxygen: number; food: number; tempC: number }>;
 
 export const TASKS: Record<
@@ -160,6 +161,19 @@ export const TASKS: Record<
     effects: {}, needsPower: false,
     teaches: "Space radiation is dangerous for animals too, so they need shielding.",
   },
+  sleep: {
+    label: "SLEEP", verb: "GO TO SLEEP", icon: "🛏️", secs: 1,
+    effects: {}, needsPower: false,
+    teaches: "NASA schedules 8.5 hours of sleep a night for space station crews.",
+  },
+};
+
+// ---------- Sleep (bed inside the base) ----------
+export const SLEEP = {
+  speed: 8, //       GAME  the night passes 8x faster while you sleep
+  restedMul: 0.8, // GAME  jobs take 20% less time the day after you slept
+  tiredMul: 1.2, //  GAME  jobs take 20% longer if you skipped sleep
+  // REAL: NASA schedules 8.5 hours of sleep a night for ISS crews (they average about 6)
 };
 
 // ---------- Rat lab (inspired by NASA's Rodent Research missions on the ISS) ----------
