@@ -1412,18 +1412,37 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   // ----- landing pad + beacon + rescue ship -----
   function drawPad() {
     const { x, y, w, h } = PAD;
-    px(ctx, x + 3, y + 4, w, h, "rgba(0,0,0,0.25)");
-    px(ctx, x, y, w, h, "#4a4e5c");
-    px(ctx, x + 2, y + 2, w - 4, h - 4, "#6b7080");
-    // H marking
+    px(ctx, x + 3, y + 4, w, h, "rgba(0,0,0,0.25)"); // shadow
+    px(ctx, x, y, w, h, INK); //                         bold black border
+    px(ctx, x + 4, y + 4, w - 8, h - 8, "#6b7080"); //   concrete
+    for (let gx = x + 36; gx < x + w - 8; gx += 32) px(ctx, gx, y + 7, 1, h - 14, "#5f6474"); // slab seams
+    for (let gy = y + 36; gy < y + h - 8; gy += 32) px(ctx, x + 7, gy, w - 14, 1, "#5f6474");
+    // yellow and black hazard stripes just inside the border
+    const band = (bx: number, by: number, bw: number, bh: number, across: boolean) => {
+      const len = across ? bw : bh;
+      for (let k = 0; k < len; k += 6) {
+        const c = (k / 6) % 2 ? INK : AMBER;
+        if (across) px(ctx, bx + k, by, Math.min(6, len - k), bh, c);
+        else px(ctx, bx, by + k, bw, Math.min(6, len - k), c);
+      }
+    };
+    band(x + 4, y + 4, w - 8, 3, true);
+    band(x + 4, y + h - 7, w - 8, 3, true);
+    band(x + 4, y + 7, 3, h - 14, false);
+    band(x + w - 7, y + 7, 3, h - 14, false);
+    // touchdown target where the ship lands: a bold black ring that flashes green when the beacon is on
+    const on = beaconOn && Math.sin(t * 6) > 0;
     const cx = x + w / 2 - 6;
     const cy = y + h / 2;
-    px(ctx, cx - 14, cy - 16, 4, 32, "#e3e7ef");
-    px(ctx, cx + 10, cy - 16, 4, 32, "#e3e7ef");
-    px(ctx, cx - 10, cy - 2, 20, 4, "#e3e7ef");
+    disc(ctx, cx, cy, 22, on ? "#7dffb0" : INK);
+    disc(ctx, cx, cy, 18, "#6b7080");
+    disc(ctx, cx, cy, 5, on ? "#7dffb0" : INK);
+    px(ctx, cx - 1, cy - 30, 2, 6, INK);
+    px(ctx, cx - 1, cy + 24, 2, 6, INK);
+    px(ctx, cx - 30, cy - 1, 6, 2, INK);
+    px(ctx, cx + 24, cy - 1, 6, 2, INK);
     // corner lights
-    const on = beaconOn && Math.sin(t * 6) > 0;
-    for (const [lx, ly] of [[x + 4, y + 4], [x + w - 7, y + 4], [x + 4, y + h - 7], [x + w - 7, y + h - 7]])
+    for (const [lx, ly] of [[x + 10, y + 10], [x + w - 13, y + h - 13], [x + 10, y + h - 13]])
       px(ctx, lx, ly, 3, 3, on ? "#7dffb0" : "#2a3a30");
   }
   function drawMast() {
