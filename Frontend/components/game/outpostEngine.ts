@@ -16,7 +16,7 @@ export type StationId = "habitat" | "greenhouse" | "recycle" | "conserve" | "sol
 export type WorldDest = "moon" | "mars";
 export type FloatText = { text: string; color: string };
 // A little cut-scene that plays while a job runs. setProgress() moves it along.
-export type Scene = "harvest" | "shelter" | null;
+export type Scene = "harvest" | "shelter" | "clean" | null;
 export type OutpostStatus = { power: number; oxygen: number; food: number };
 export type Quality = "high" | "low";
 export type StationInfo = { verb: string; broken: boolean; blocked: boolean };
@@ -43,7 +43,9 @@ export type Outpost = {
   setPaused(p: boolean): void;
   setHidden(h: boolean): void; // astronaut is inside the storm shelter
   setProgress(p: number | null): void; // task progress ring 0..1
-  setScene(s: Scene): void; // "harvest" = walk into the greenhouse and pick plants, "shelter" = walk into the habitat
+  setScene(s: Scene): void; // "harvest" = pick plants, "shelter" = walk into the habitat, "clean" = wipe the solar panels
+  setPanelDust(d: number): void; // 0 = clean solar panels, 1 = very dusty
+  playFix(id: StationId, tool: "drill" | "tape"): void; // repair animation: power drill + sparks, or duct tape
   setCanSprint(on: boolean): void;
   setSpeedMul(m: number): void;
   setBeacon(on: boolean): void;
@@ -444,12 +446,18 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   let hidden = false;
   let progress: number | null = null;
   // ----- job scenes (harvest, shelter) -----
-  type ScenePoint = { p: number; x: number; y: number; face?: Facing; pick?: { c: number; at: number; done: boolean } };
+  type ScenePoint = {
+    p: number; x: number; y: number; face?: Facing;
+    pick?: { c: number; at: number; done: boolean }; // greenhouse plant to pick
+    wipe?: { c: number; from: number; to: number; done: boolean }; // solar panel column to mop
+  };
   let scene: Scene = null;
   let sceneOk = false; // false = the astronaut wasn't by the door, so only the progress ring shows
   let scenePath: ScenePoint[] = [];
   let restoreAt = 0; // after walking into the shelter: step back out if the shelter didn't happen
   const picked = new Map<number, number>(); // greenhouse plant (row*10+col) → time it has regrown
+  let panelDust = 0; // 0 = clean solar panels, 1 = very dusty
+  let fix: { tool: "drill" | "tape"; until: number } | null = null; // repair animation
   let canSprint = true;
   let speedMul = 1;
   let beaconOn = false;
@@ -593,6 +601,16 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       restoreAt = 0;
       if (!hidden) place(STATIONS.habitat.spot);
     }
+    if (fix) {
+      if (t >= fix.until) fix = null;
+      else {
+        // stand still and work on the machine
+        player.moving = false;
+        sprinting = false;
+        if (!paused) fixSparks(dt);
+        return;
+      }
+    }
     if (sceneOk && progress !== null) {
       runScene(dt);
       return;
@@ -673,7 +691,9 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   }
 
   // Turn a list of stops into timed points. "wait" = share of the job spent standing still there.
-  function planScene(stops: { x: number; y: number; wait?: number; face?: Facing; pickCol?: number }[]): ScenePoint[] {
+  function planScene(
+    stops: { x: number; y: number; wait?: number; face?: Facing; pickCol?: number; wipeCol?: number }[],
+  ): ScenePoint[] {
     let dist = 0;
     for (let i = 1; i < stops.length; i++) dist += Math.hypot(stops[i].x - stops[i - 1].x, stops[i].y - stops[i - 1].y);
     const waits = stops.reduce((a, st) => a + (st.wait ?? 0), 0);
@@ -685,8 +705,9 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       out.push({ p, x: st.x, y: st.y });
       if (st.wait) {
         const pick = st.pickCol === undefined ? undefined : { c: st.pickCol, at: p + st.wait * 0.6, done: false };
+        const wipe = st.wipeCol === undefined ? undefined : { c: st.wipeCol, from: p, to: p + st.wait, done: false };
         p += st.wait;
-        out.push({ p, x: st.x, y: st.y, face: st.face, pick });
+        out.push({ p, x: st.x, y: st.y, face: st.face, pick, wipe });
       }
     });
     return out;
@@ -712,6 +733,19 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
         { x: x + w + 4, y: aisle },
         STATIONS.greenhouse.spot,
       ]);
+    } else if (sc === "clean") {
+      const { x, y, h } = SOLAR;
+      if (player.y < y + h) return; // not in front of the panels
+      const front = y + h + 6; // stand at the front edge and wipe each column of panels
+      const colX = (c: number) => x + 6 + c * 34 + 15;
+      scenePath = planScene([
+        from,
+        { x: colX(0), y: front, wait: 0.11, face: "up", wipeCol: 0 },
+        { x: colX(1), y: front, wait: 0.11, face: "up", wipeCol: 1 },
+        { x: colX(2), y: front, wait: 0.11, face: "up", wipeCol: 2 },
+        { x: colX(3), y: front, wait: 0.11, face: "up", wipeCol: 3 },
+        STATIONS.solar.spot,
+      ]);
     } else {
       if (player.y < HAB.y + HAB.h) return; // not in front of the habitat
       const spot = STATIONS.habitat.spot;
@@ -722,7 +756,10 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
 
   function endScene(was: Exclude<Scene, null>) {
     if (was === "harvest") place(STATIONS.greenhouse.spot);
-    else restoreAt = t + 0.5;
+    else if (was === "clean") {
+      place(STATIONS.solar.spot);
+      panelDust = 0; // job done: the panels are clean (the next update confirms it)
+    } else restoreAt = t + 0.5;
   }
 
   function runScene(dt: number) {
@@ -748,7 +785,12 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     sprinting = false;
     // picking: leaves fly while working, the plant becomes a sprout
     if (!player.moving && b.pick && !paused && Math.random() < dt * 14) leafPop(b.pick.c, 1);
+    if (!player.moving && b.wipe && !paused && Math.random() < dt * 30) dustPuff(b.wipe.c);
     for (const q of k) {
+      if (q.wipe && !q.wipe.done && p >= q.wipe.to) {
+        q.wipe.done = true;
+        sparkle(q.wipe.c); // a freshly mopped column shines
+      }
       if (!q.pick || q.pick.done || p < q.pick.at) continue;
       q.pick.done = true;
       picked.set(20 + q.pick.c, t + 8);
@@ -764,6 +806,111 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
         x: lx + (Math.random() - 0.5) * 6, y: ly, vx: (Math.random() - 0.5) * 24, vy: -14 - Math.random() * 20,
         life: 0, max: 0.5 + Math.random() * 0.4, c: Math.random() < 0.25 ? "#ff6a5a" : "#7dffb0", s: Math.random() < 0.3 ? 2 : 1,
       });
+    }
+  }
+
+  // Solar cleaning: how much of a panel column has been wiped (0..1), and where the wipe line is
+  function colClean(c: number) {
+    if (scene !== "clean" || !sceneOk || progress === null) return 0;
+    const w = scenePath.find((q) => q.wipe?.c === c)?.wipe;
+    return w ? clamp((progress - w.from) / (w.to - w.from), 0, 1) : 0;
+  }
+  const wipeLine = (c: number) => SOLAR.y + 74 - colClean(c) * 68; // panels span y+6 .. y+74
+  const dirtColor = () => (dest === "mars" ? "#c9773f" : "#a7a9b4");
+  function dustPuff(c: number) {
+    if (panelDust < 0.02) return;
+    parts.push({
+      x: SOLAR.x + 8 + c * 34 + Math.random() * 26, y: wipeLine(c), vx: (Math.random() - 0.5) * 30, vy: -8 - Math.random() * 14,
+      life: 0, max: 0.4 + Math.random() * 0.4, c: dirtColor(), s: Math.random() < 0.3 ? 2 : 1,
+    });
+  }
+
+  function sparkle(c: number) {
+    for (let j = 0; j < (quality === "low" ? 5 : 10); j++) {
+      parts.push({
+        x: SOLAR.x + 8 + c * 34 + Math.random() * 26, y: SOLAR.y + 8 + Math.random() * 64, vx: 0, vy: -6 - Math.random() * 8,
+        life: 0, max: 0.5 + Math.random() * 0.4, c: Math.random() < 0.5 ? "#ffffff" : "#bff6ff", s: 1,
+      });
+    }
+  }
+
+  // The mop on a long pole: held upright while walking, swooped across the panels while scrubbing
+  function drawMop() {
+    const sx = Math.round(player.x);
+    const sy = Math.round(player.y);
+    const p = clamp(progress ?? 0, 0, 1);
+    const w = scenePath.find((q) => q.wipe && p >= q.wipe.from && p <= q.wipe.to)?.wipe;
+    let hx: number;
+    let hy: number;
+    if (w) {
+      hx = Math.round(SOLAR.x + 21 + w.c * 34 + Math.sin(t * 14) * 10); // swoop left and right
+      hy = Math.round(wipeLine(w.c)); //                                  while moving up the column
+    } else {
+      hx = sx + 7;
+      hy = sy - 27;
+    }
+    const fx = hx < sx ? sx - 4 : sx + 4; // the hand holding the pole
+    const fy = sy - 9;
+    const dx = hx - fx;
+    const dy = hy - fy;
+    const n = Math.max(Math.abs(dx), Math.abs(dy), 1);
+    for (let i = 0; i <= n; i++) px(ctx, Math.round(fx + (dx * i) / n), Math.round(fy + (dy * i) / n), 1, 1, "#d8b07a");
+    // mop head: yellow sponge with white strings
+    px(ctx, hx - 6, hy - 2, 12, 4, INK);
+    px(ctx, hx - 5, hy - 1, 10, 2, "#ffd25a");
+    for (let f = 0; f < 5; f++) px(ctx, hx - 5 + f * 2, hy + 2, 1, 2 + (f % 2), "#e8eef8");
+  }
+
+  // ----- repairs: the astronaut holds a power drill (or a roll of duct tape) -----
+  function toolPose() {
+    const f = player.facing;
+    const dx = f === "right" ? 1 : f === "left" ? -1 : 0;
+    const dy = f === "down" ? 1 : f === "up" ? -1 : 0;
+    const hx = Math.round(player.x) + (dx !== 0 ? dx * 6 : 5); // the hand
+    const hy = Math.round(player.y) - 8 + (dy < 0 ? -2 : 0);
+    return { dx, dy, hx, hy, tipX: hx + dx * 8, tipY: hy + dy * 8 };
+  }
+
+  function fixSparks(dt: number) {
+    if (!fix) return;
+    const { dx, dy, tipX, tipY } = toolPose();
+    const rate = fix.tool === "drill" ? 45 : 8;
+    const n = quality === "low" ? 1 : 2;
+    for (let j = 0; j < n; j++) {
+      if (Math.random() > dt * rate) continue;
+      const sp = 20 + Math.random() * 35;
+      const a = Math.random() * Math.PI * 2;
+      parts.push({
+        x: tipX, y: tipY,
+        vx: Math.cos(a) * sp * 0.6 - dx * 10, vy: Math.sin(a) * sp * 0.6 - dy * 10 - 10,
+        life: 0, max: 0.25 + Math.random() * 0.3,
+        c: fix.tool === "drill" ? ["#fff3b0", "#ffd25a", "#ff9d3d"][j % 3] : "#c9ced9",
+        s: 1,
+      });
+    }
+  }
+
+  function drawTool() {
+    if (!fix) return;
+    const { dx, dy, hx, hy } = toolPose();
+    if (fix.tool === "drill") {
+      // orange power drill with a spinning bit
+      px(ctx, hx - 3, hy - 3, 7, 5, INK);
+      px(ctx, hx - 2, hy - 2, 5, 3, "#ff8a3d");
+      px(ctx, hx - 1, hy + 2, 3, 3, INK); // grip
+      const spin = Math.floor(t * 30) % 2 === 0;
+      for (let i = 1; i <= 5; i++) {
+        px(ctx, hx + dx * (3 + i), hy + dy * (3 + i), 1, 1, (i + (spin ? 1 : 0)) % 2 ? "#e8eef8" : "#8a90a0");
+      }
+    } else {
+      // a roll of grey duct tape, with a strip flapping toward the machine
+      px(ctx, hx - 3, hy - 3, 6, 6, INK);
+      px(ctx, hx - 2, hy - 2, 4, 4, "#a9b0c0");
+      px(ctx, hx - 1, hy - 1, 2, 2, INK);
+      const wob = Math.round(Math.sin(t * 16));
+      for (let i = 1; i <= 5; i++) {
+        px(ctx, hx + dx * (2 + i) + (dx === 0 ? wob : 0), hy + dy * (2 + i) + (dy === 0 ? wob : 0), 2, 1, "#c9ced9");
+      }
     }
   }
 
@@ -830,6 +977,20 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
           const a = Math.max(X + 1, sx);
           const b = Math.min(X + pw - 1, sx + 4);
           if (b > a) px(ctx, a, Y + 1, b - a, ph - 2, "rgba(255,255,255,0.35)");
+        }
+        // dust on the panel (wiped away from the bottom up while cleaning)
+        if (panelDust > 0.02) {
+          const bottom = Math.min(Y + ph - 1, Math.floor(wipeLine(col)));
+          if (bottom > Y + 1) {
+            const al = 0.2 + 0.5 * clamp(panelDust / 0.5, 0, 1);
+            ctx.fillStyle = dest === "mars" ? `rgba(196,120,64,${al})` : `rgba(160,160,170,${al})`;
+            ctx.fillRect(X + 1, Y + 1, pw - 2, bottom - (Y + 1));
+            for (let k = 0; k < 6; k++) {
+              const sx = X + 3 + ((k * 7 + row * 5 + col * 3) % (pw - 6));
+              const sy = Y + 3 + ((k * 5 + col * 7) % (ph - 6));
+              if (sy < bottom) px(ctx, sx, sy, 2, 1, dirtColor());
+            }
+          }
         }
       }
     }
@@ -1022,6 +1183,8 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
         ctx.fillRect(ox + rx, oy + ry, 1, 1);
       }
     }
+    if (scene === "clean" && sceneOk && progress !== null) drawMop();
+    if (fix) drawTool();
   }
 
   // ----- landing pad + beacon + rescue ship -----
@@ -1426,6 +1589,14 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       hidden = h;
     },
     setProgress(p) { progress = p; },
+    setPanelDust(d) { panelDust = clamp(d, 0, 1); },
+    playFix(id, tool) {
+      target = null;
+      route = [];
+      pendingUse = null;
+      faceToward(STATIONS[id].rect);
+      fix = { tool, until: t + 1.5 };
+    },
     setScene(sc) {
       if (sc === scene) return;
       const was = scene;

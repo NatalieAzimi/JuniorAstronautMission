@@ -165,6 +165,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
     e.setCanSprint(!s.sick);
     e.setSpeedMul(s.sick ? 0.8 : 1);
     e.setBeacon(s.beaconOn);
+    e.setPanelDust(1 - s.solarEff);
 
     // new toasts → screen + sounds
     const fresh = s.toasts.filter((t) => t.id > seenToast.current);
@@ -211,6 +212,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
       const before = snapshot(sim);
       repair(sim, repairing, mode);
       engine.current?.feedback(repairing, floatsFor(before, snapshot(sim)));
+      engine.current?.playFix(repairing, mode === "tape" ? "tape" : "drill"); // drill + sparks, or duct tape
     }
     setRepairing(null);
     sync();
@@ -241,8 +243,9 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
           }
         }
         e.setProgress(s.task ? 1 - s.task.left / s.task.total : null);
-        // greenhouse = walk in and harvest, storm shelter = walk into the habitat
-        e.setScene(s.task?.id === "greenhouse" ? "harvest" : s.task?.id === "shelter" ? "shelter" : null);
+        // greenhouse = walk in and harvest, shelter = walk into the habitat, clean = wipe the solar panels
+        const job = s.task?.id;
+        e.setScene(job === "greenhouse" ? "harvest" : job === "shelter" ? "shelter" : job === "clean" ? "clean" : null);
         const now = performance.now();
         if (now - lastSync.current > 100) {
           lastSync.current = now;
