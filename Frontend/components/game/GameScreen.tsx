@@ -15,7 +15,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MISSION, RADIATION, TASKS, TEMP } from "@/lib/mission/config";
+import { MISSION, RADIATION, RATS, TASKS, TEMP } from "@/lib/mission/config";
 import type { Dest, PartId, StationId, SystemId, TaskId } from "@/lib/mission/config";
 import type { Apod, SpaceWeather } from "@/lib/mission/nasaData";
 import {
@@ -32,7 +32,7 @@ import SettingsMenu from "@/components/menus/SettingsMenu";
 import { play } from "@/lib/sfx";
 import "./game.css";
 
-// Hotbar: keys 1–7 walk to that station and use it
+// Hotbar: keys 1–8 walk to that station and use it
 const SLOTS: { id: StationId; key: string; icon: string; label: string; task: TaskId }[] = [
   { id: "habitat", key: "1", icon: "🔥", label: "HEATER", task: "heater" },
   { id: "greenhouse", key: "2", icon: "🌱", label: "GREENHOUSE", task: "greenhouse" },
@@ -41,6 +41,7 @@ const SLOTS: { id: StationId; key: string; icon: string; label: string; task: Ta
   { id: "solar", key: "5", icon: "🧹", label: "CLEAN PANELS", task: "clean" },
   { id: "comms", key: "6", icon: "📡", label: "CALL HOUSTON", task: "call" },
   { id: "beacon", key: "7", icon: "🚨", label: "BEACON", task: "beacon" },
+  { id: "lab", key: "8", icon: "🐀", label: "RAT LAB", task: "feedRats" },
 ];
 const STATIONS: StationId[] = SLOTS.map((s) => s.id);
 
@@ -83,6 +84,7 @@ function readHud(s: Sim) {
     calling: s.call ? Math.max(0, Math.ceil(s.call.arrivesAt - s.elapsed)) : -1,
     overtime: s.overtime >= 0 ? Math.ceil(s.overtime) : -1,
     beaconOn: s.beaconOn,
+    rats: { ...s.rats },
     hint: narratorHint(s),
     log: s.log.slice(0, 4),
     status: s.status,
@@ -166,6 +168,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
     e.setSpeedMul(s.sick ? 0.8 : 1);
     e.setBeacon(s.beaconOn);
     e.setPanelDust(1 - s.solarEff);
+    e.setRats({ health: s.rats.health, shielded: s.rats.shielded, fed: s.rats.fedToday });
 
     // new toasts → screen + sounds
     const fresh = s.toasts.filter((t) => t.id > seenToast.current);
@@ -356,6 +359,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
           <h2 className="og-name">{name.toUpperCase()}</h2>
           <div className="og-chips">
             <span className="og-chip target">🚀 RESCUE: END OF {dayWord} {MISSION.days}</span>
+            <span className={`og-chip ${hud.rats.health < 50 ? "hot" : ""}`}>🐀 RATS {Math.round(hud.rats.health)}%</span>
             {hud.sick && <span className="og-chip hot">🤒 RESTING</span>}
             {hud.sheltering && <span className="og-chip ok">🛡️ SHELTERED</span>}
           </div>
@@ -433,7 +437,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
             <li key={i}>{l}</li>
           ))}
         </ul>
-        <p className="og-tip">WASD MOVE · SHIFT SPRINT · SPACE USE · E INVENTORY · ESC MENU · 1–7 QUICK</p>
+        <p className="og-tip">WASD MOVE · SHIFT SPRINT · SPACE USE · E INVENTORY · ESC MENU · 1–8 QUICK</p>
       </section>
 
       {/* ---------- Bottom-centre: station hotbar ---------- */}
@@ -443,8 +447,12 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
             const a = hud.actions[sl.id];
             const broken = a.kind === "repair";
             const dim = a.kind === "blocked";
-            const label = sl.id === "habitat" && a.kind === "task" && a.task === "shelter" ? "SHELTER" : sl.id === "habitat" && a.kind === "leave" ? "LEAVE" : sl.label;
-            const icon = label === "SHELTER" || label === "LEAVE" ? "🛡️" : sl.icon;
+            const label =
+              sl.id === "habitat" && a.kind === "task" && a.task === "shelter" ? "SHELTER"
+              : sl.id === "habitat" && a.kind === "leave" ? "LEAVE"
+              : sl.id === "lab" && a.kind === "task" && a.task === "shieldRats" ? "SHIELD RATS"
+              : sl.label;
+            const icon = label === "SHELTER" || label === "LEAVE" || label === "SHIELD RATS" ? "🛡️" : sl.icon;
             return (
               <button
                 key={sl.id}
@@ -460,6 +468,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
                   {!broken &&
                     label !== "SHELTER" &&
                     label !== "LEAVE" &&
+                    label !== "SHIELD RATS" &&
                     costChips(sl.task).map((c) => (
                       <span key={c.t} className={c.up ? "up" : "dn"}>{c.up ? "▲" : "▼"}{c.t}</span>
                     ))}
@@ -546,6 +555,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
               <li>⚠ {hud.stats.breakdowns} breakdowns</li>
               <li>☢ {hud.dose.toFixed(1)} mSv total radiation</li>
               <li>📘 {hud.facts} facts collected</li>
+              <li>🐀 Lab rats {Math.round(hud.rats.health)}% healthy{hud.rats.health >= RATS.bonusAt ? " · 🔬 SCIENCE BONUS!" : ""}</li>
             </ul>
             {hud.ending === "failed" && <p className="why">Failure is a lesson, not a punishment. Real mission planners test ideas again and again.</p>}
             <div className="og-endbtns">

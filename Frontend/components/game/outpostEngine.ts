@@ -12,11 +12,12 @@
 //     cached labels and lights, 30 fps cap in low mode
 // =========================================================
 
-export type StationId = "habitat" | "greenhouse" | "recycle" | "conserve" | "solar" | "comms" | "beacon";
+export type StationId = "habitat" | "greenhouse" | "recycle" | "conserve" | "solar" | "comms" | "beacon" | "lab";
 export type WorldDest = "moon" | "mars";
 export type FloatText = { text: string; color: string };
 // A little cut-scene that plays while a job runs. setProgress() moves it along.
 export type Scene = "harvest" | "shelter" | "clean" | null;
+export type RatInfo = { health: number; shielded: boolean; fed: boolean }; // the rat lab
 export type OutpostStatus = { power: number; oxygen: number; food: number };
 export type Quality = "high" | "low";
 export type StationInfo = { verb: string; broken: boolean; blocked: boolean };
@@ -47,6 +48,7 @@ export type Outpost = {
   setScene(s: Scene): void; // "harvest" = pick plants, "shelter" = walk into the habitat, "clean" = wipe the solar panels
   setPanelDust(d: number): void; // 0 = clean solar panels, 1 = very dusty
   playFix(id: StationId, tool: "drill" | "tape"): void; // repair animation: power drill + sparks, or duct tape
+  setRats(r: RatInfo): void; // rat lab: health, in the shielded room, fed today
   setCanSprint(on: boolean): void;
   setSpeedMul(m: number): void;
   setBeacon(on: boolean): void;
@@ -70,14 +72,15 @@ const R = (x: number, y: number, w: number, h: number): Rect => ({ x: x * T, y: 
 
 const HAB = R(18, 3, 9, 6);
 const SOLAR = R(4, 3, 9, 5);
-const GREEN = R(5, 15, 10, 7);
-const RECYC = R(31, 14, 6, 5);
+const GREEN = R(4, 14, 10, 7); //  left column, under the solar array
+const RECYC = R(32, 12, 6, 5); //  right column, under the battery bank
 const BATT = R(32, 4, 6, 4);
-const DISH = R(21, 20, 3, 3);
-const PAD = R(34, 21, 8, 6);
+const DISH = R(21, 13, 3, 3); //  middle column, under the habitat door
+const PAD = R(19, 20, 8, 6); //  bottom middle (where the dish used to be)
 const DOCK = R(28, 10, 3, 2); // rover charging dock (flat: you can walk over it)
+const LAB = R(32, 20, 7, 5); //   rat lab: right column, bottom row
 const MAST = { x: PAD.x + PAD.w - 14, y: PAD.y + 4, w: 8, h: 10 };
-const SOLIDS = [HAB, SOLAR, GREEN, RECYC, BATT, DISH, MAST];
+const SOLIDS = [HAB, SOLAR, GREEN, RECYC, BATT, DISH, MAST, LAB];
 
 const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; label: string }> = {
   habitat: { rect: HAB, spot: { x: HAB.x + HAB.w / 2, y: HAB.y + HAB.h + 14 }, label: "BASE · HEATER & SHELTER" },
@@ -87,6 +90,7 @@ const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; 
   solar: { rect: SOLAR, spot: { x: SOLAR.x + SOLAR.w / 2, y: SOLAR.y + SOLAR.h + 14 }, label: "SOLAR ARRAY" },
   comms: { rect: DISH, spot: { x: DISH.x + DISH.w / 2, y: DISH.y - 10 }, label: "COMMS DISH · EARTH" },
   beacon: { rect: PAD, spot: { x: PAD.x + PAD.w / 2 - 12, y: PAD.y + PAD.h / 2 + 4 }, label: "LANDING PAD · BEACON" },
+  lab: { rect: LAB, spot: { x: LAB.x - 10, y: LAB.y + LAB.h / 2 + 8 }, label: "RAT LAB" },
 };
 const STATION_IDS = Object.keys(STATIONS) as StationId[];
 
@@ -468,6 +472,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     route: [] as { x: number; y: number }[], wheel: 0, moving: false,
   };
   let pendingRover = false; // walking over to the rover after clicking it
+  let rats: RatInfo = { health: 100, shielded: false, fed: false };
   let canSprint = true;
   let speedMul = 1;
   let beaconOn = false;
@@ -492,7 +497,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   let cam = { x: 0, y: 0 };
   let t = 0;
   const keys = new Set<string>();
-  const pulse: Record<StationId, number> = { habitat: 0, greenhouse: 0, conserve: 0, recycle: 0, solar: 0, comms: 0, beacon: 0 };
+  const pulse: Record<StationId, number> = { habitat: 0, greenhouse: 0, conserve: 0, recycle: 0, solar: 0, comms: 0, beacon: 0, lab: 0 };
   const floats: { x: number; y: number; text: string; color: string; age: number }[] = [];
   const parts: { x: number; y: number; vx: number; vy: number; life: number; max: number; c: string; s: number }[] = [];
   const dust: { x: number; y: number; v: number }[] = [];
@@ -1017,6 +1022,58 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     opts.onRover?.();
   }
 
+  // ----- rat lab: three cages behind a window, and a thick shielded room for storms -----
+  function drawLab() {
+    const { x, y, w, h } = LAB;
+    shadow(LAB);
+    px(ctx, x, y, w, h, INK);
+    px(ctx, x + 2, y + 2, w - 4, h - 4, "#e3e7ef");
+    px(ctx, x + 2, y + 2, w - 4, 4, "#ffffff");
+    px(ctx, x + 2, y + h - 10, w - 4, 8, "#c3c8d4");
+    // door on the left (faces the path)
+    px(ctx, x, y + h / 2 - 8, 5, 16, "#56607a");
+    // window into the lab
+    const wx = x + 10;
+    const wy = y + 12;
+    px(ctx, wx - 2, wy - 2, 66, 44, INK);
+    px(ctx, wx, wy, 62, 40, night ? "#1b2a4a" : "#bfe9f5");
+    for (let c = 0; c < 3; c++) {
+      const cx = wx + 3 + c * 20;
+      const cy = wy + 14;
+      px(ctx, cx, cy, 17, 14, "#8a90a0"); // cage
+      px(ctx, cx + 1, cy + 1, 15, 12, "#f2f4f8");
+      if (!rats.shielded) {
+        // a rat scurrying back and forth (slower when it's not healthy)
+        const sp = rats.health > 50 ? 3 : 1.2;
+        const rx = cx + 2 + Math.round((Math.sin(t * sp + c * 2) * 0.5 + 0.5) * 7);
+        px(ctx, rx, cy + 8, 4, 3, "#b9bec9");
+        px(ctx, rx + 4, cy + 8, 1, 1, "#ff9ad8"); // nose
+        px(ctx, rx - 2, cy + 10, 2, 1, "#ff9ad8"); // tail
+      }
+      for (let b = 0; b < 4; b++) px(ctx, cx + 3 + b * 4, cy + 1, 1, 12, "#a9b0c0"); // bars
+      px(ctx, cx + 11, cy + 10, 4, 2, rats.fed ? "#ffd25a" : "#6b7080"); // food bowl: full after feeding
+    }
+    // rat health bar under the window
+    const hp = clamp(rats.health / 100, 0, 1);
+    px(ctx, wx, wy + 44, 62, 4, INK);
+    px(ctx, wx + 1, wy + 45, Math.max(0, Math.round(60 * hp)), 2, hp > 0.6 ? "#7dffb0" : hp > 0.3 ? AMBER : HOT);
+    // shielded room: thick walls, a radiation sign, and a light that turns green when the rats are inside
+    const sx = x + w - 34;
+    const sy = y + 10;
+    px(ctx, sx, sy, 28, 48, INK);
+    px(ctx, sx + 3, sy + 3, 22, 42, "#6b7080");
+    px(ctx, sx + 8, sy + 8, 12, 12, AMBER);
+    px(ctx, sx + 13, sy + 13, 2, 2, INK);
+    px(ctx, sx + 13, sy + 9, 2, 3, INK);
+    px(ctx, sx + 9, sy + 16, 3, 2, INK);
+    px(ctx, sx + 16, sy + 16, 3, 2, INK);
+    px(ctx, sx + 10, sy + 30, 8, 5, rats.shielded ? (Math.sin(t * 4) > -0.5 ? "#7dffb0" : "#3f9a68") : "#2a3a30");
+    if (pulse.lab > 0) {
+      ctx.fillStyle = `rgba(255,210,90,${pulse.lab * 0.3})`;
+      ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+    }
+  }
+
   function drawDock() {
     const { x, y, w, h } = DOCK;
     px(ctx, x + 2, y + 3, w, h, "rgba(0,0,0,0.25)");
@@ -1355,18 +1412,37 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   // ----- landing pad + beacon + rescue ship -----
   function drawPad() {
     const { x, y, w, h } = PAD;
-    px(ctx, x + 3, y + 4, w, h, "rgba(0,0,0,0.25)");
-    px(ctx, x, y, w, h, "#4a4e5c");
-    px(ctx, x + 2, y + 2, w - 4, h - 4, "#6b7080");
-    // H marking
+    px(ctx, x + 3, y + 4, w, h, "rgba(0,0,0,0.25)"); // shadow
+    px(ctx, x, y, w, h, INK); //                         bold black border
+    px(ctx, x + 4, y + 4, w - 8, h - 8, "#6b7080"); //   concrete
+    for (let gx = x + 36; gx < x + w - 8; gx += 32) px(ctx, gx, y + 7, 1, h - 14, "#5f6474"); // slab seams
+    for (let gy = y + 36; gy < y + h - 8; gy += 32) px(ctx, x + 7, gy, w - 14, 1, "#5f6474");
+    // yellow and black hazard stripes just inside the border
+    const band = (bx: number, by: number, bw: number, bh: number, across: boolean) => {
+      const len = across ? bw : bh;
+      for (let k = 0; k < len; k += 6) {
+        const c = (k / 6) % 2 ? INK : AMBER;
+        if (across) px(ctx, bx + k, by, Math.min(6, len - k), bh, c);
+        else px(ctx, bx, by + k, bw, Math.min(6, len - k), c);
+      }
+    };
+    band(x + 4, y + 4, w - 8, 3, true);
+    band(x + 4, y + h - 7, w - 8, 3, true);
+    band(x + 4, y + 7, 3, h - 14, false);
+    band(x + w - 7, y + 7, 3, h - 14, false);
+    // touchdown target where the ship lands: a bold black ring that flashes green when the beacon is on
+    const on = beaconOn && Math.sin(t * 6) > 0;
     const cx = x + w / 2 - 6;
     const cy = y + h / 2;
-    px(ctx, cx - 14, cy - 16, 4, 32, "#e3e7ef");
-    px(ctx, cx + 10, cy - 16, 4, 32, "#e3e7ef");
-    px(ctx, cx - 10, cy - 2, 20, 4, "#e3e7ef");
+    disc(ctx, cx, cy, 22, on ? "#7dffb0" : INK);
+    disc(ctx, cx, cy, 18, "#6b7080");
+    disc(ctx, cx, cy, 5, on ? "#7dffb0" : INK);
+    px(ctx, cx - 1, cy - 30, 2, 6, INK);
+    px(ctx, cx - 1, cy + 24, 2, 6, INK);
+    px(ctx, cx - 30, cy - 1, 6, 2, INK);
+    px(ctx, cx + 24, cy - 1, 6, 2, INK);
     // corner lights
-    const on = beaconOn && Math.sin(t * 6) > 0;
-    for (const [lx, ly] of [[x + 4, y + 4], [x + w - 7, y + 4], [x + 4, y + h - 7], [x + w - 7, y + h - 7]])
+    for (const [lx, ly] of [[x + 10, y + 10], [x + w - 13, y + h - 13], [x + 10, y + h - 13]])
       px(ctx, lx, ly, 3, 3, on ? "#7dffb0" : "#2a3a30");
   }
   function drawMast() {
@@ -1567,6 +1643,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     light(BATT.x + BATT.w / 2, BATT.y + BATT.h / 2, 34, 0.7);
     light(DISH.x + DISH.w / 2, DISH.y + 4, 18, 0.8);
     light(rover.x + rover.face * 8, rover.y - 6, 22, 0.7); // rover headlights
+    light(LAB.x + LAB.w / 2, LAB.y + LAB.h / 2, 44, 0.75);
     if (beaconOn) light(MAST.x + 3, MAST.y - 12, 40, 0.9);
     octx.globalAlpha = 1;
     octx.globalCompositeOperation = "source-over";
@@ -1706,6 +1783,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       { y: DISH.y + DISH.h, draw: drawDish },
       { y: MAST.y + MAST.h, draw: drawMast },
       { y: rover.y, draw: drawRover },
+      { y: LAB.y + LAB.h, draw: drawLab },
     ];
     if (!hidden && !inGreenhouse()) items.push({ y: player.y, draw: drawPlayer });
     items.sort((a, b) => a.y - b.y).forEach((i) => i.draw());
@@ -1767,6 +1845,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     },
     setProgress(p) { progress = p; },
     setPanelDust(d) { panelDust = clamp(d, 0, 1); },
+    setRats(r) { rats = r; },
     playFix(id, tool) {
       target = null;
       route = [];
