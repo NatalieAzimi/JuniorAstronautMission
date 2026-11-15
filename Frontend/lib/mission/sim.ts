@@ -62,6 +62,7 @@ export type Sim = {
   factPool: string[];
   sheltering: boolean;
   rats: { health: number; fedToday: boolean; shielded: boolean; exposedSecs: number }; // the rat lab
+  research: number; //      days the rats were fed (rat lab research progress)
   sleeping: boolean; //     asleep in bed: the night runs faster
   sleepSpeed: number; //    how much faster time runs while asleep
   sleptTonight: boolean;
@@ -198,7 +199,7 @@ export function newSim(dest: Dest, weather: SpaceWeather, seed = Date.now()): Si
     facts: [], factPool: shuffle(rnd, factsFor(dest).map((f) => f.id)),
     sheltering: false, task: null, call: null,
     rats: { health: RATS.start, fedToday: false, shielded: false, exposedSecs: 0 },
-    sleeping: false, sleepSpeed: 1, sleptTonight: false, restMul: 1,
+    research: 0, sleeping: false, sleepSpeed: 1, sleptTonight: false, restMul: 1,
     stamina: STAMINA.max, winded: false,
     oneWayLabel, roundTripSec,
     beaconOn: false, overtime: -1, blackout: false,
@@ -234,7 +235,7 @@ function startDay(s: Sim, day: number) {
     toast(
       s,
       s.sleptTonight
-        ? "☀️ Good morning! You slept well, so jobs are faster today."
+        ? "☀️ Good morning! You're well rested: you walk and work faster today."
         : "🥱 You didn't sleep last night, so jobs take longer today.",
       s.sleptTonight ? "good" : "warn",
     );
@@ -740,7 +741,7 @@ export function tick(s: Sim, dt: number, input: TickInput) {
   let dBattery = solarOutput(s) - RATES.batteryBase;
   if (isBroken(s, "conserve")) dBattery -= 0.12;
   // --- Oxygen
-  let dOxygen = -RATES.oxygenUse;
+  let dOxygen = -RATES.oxygenUse * (s.sleeping ? SLEEP.drainMul : 1); // you breathe slower while asleep
   if (input.sprinting && !s.sheltering) {
     dOxygen -= RATES.sprintOxygen;
     s.stats.sprintSecs += dt;
@@ -762,7 +763,7 @@ export function tick(s: Sim, dt: number, input: TickInput) {
   if (isBroken(s, "recycle")) dOxygen -= 0.07;
   if (isBroken(s, "habitat")) dOxygen -= 0.12;
   // --- Food
-  let dFood = -RATES.foodUse;
+  let dFood = -RATES.foodUse * (s.sleeping ? SLEEP.drainMul : 1); // and burn less energy
   if (isBroken(s, "greenhouse")) dFood -= 0.04;
   // --- Cabin temperature
   let dTemp = -(RATES.cabinCoolNight + (RATES.cabinCoolDay - RATES.cabinCoolNight) * sun);
@@ -819,7 +820,8 @@ export function tick(s: Sim, dt: number, input: TickInput) {
   } else if (s.storm.phase === "active") {
     const total = clamp((s.storm.flare?.strengthX ?? 1) * RADIATION.stormDosePerX, RADIATION.stormDoseMin, RADIATION.stormDoseMax);
     const rate = total / RADIATION.stormSeconds;
-    const got = rate * dt * (s.sheltering ? 1 - RADIATION.shelterBlocks : 1);
+    const research = s.research >= RATS.researchGoal ? 1 - RATS.researchShield : 1; // rat lab research reward
+    const got = rate * dt * (s.sheltering ? 1 - RADIATION.shelterBlocks : 1) * research;
     s.stormDose += got;
     s.doseMsv += got;
     if (!s.sheltering) s.stats.exposedStormSecs += dt;
@@ -909,6 +911,13 @@ export function wakeUp(s: Sim, why?: string) {
 function feedRats(s: Sim) {
   s.rats.fedToday = true;
   s.done.fedRats = true;
+  // reward: each day you feed them, the rat research moves forward
+  if (s.research < RATS.researchGoal) {
+    s.research++;
+    if (s.research >= RATS.researchGoal)
+      toast(s, `🧪 Research complete! What we learned from the rats protects you: storm radiation is now ${Math.round(RATS.researchShield * 100)}% lower.`, "good");
+    else toast(s, `🧪 Rat research ${s.research}/${RATS.researchGoal}. Finish it to get better radiation protection!`, "good");
+  }
   // each feeding teaches something from NASA's real Rodent Research
   const next = factsFor(s.dest).find((f) => f.id.startsWith("rats-") && !s.facts.includes(f.id));
   if (next) unlockFact(s, next.id);

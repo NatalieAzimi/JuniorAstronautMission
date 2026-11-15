@@ -191,6 +191,8 @@ export const SLEEP = {
   realSeconds: 7, // GAME  a night's sleep always takes about 7 real seconds (the rest of the night speeds by)
   restedMul: 0.8, // GAME  jobs take 20% less time the day after you slept
   tiredMul: 1.2, //  GAME  jobs take 20% longer if you skipped sleep
+  drainMul: 0.5, //  GAME  oxygen and food drain half as fast while you sleep (your body slows down at night)
+  restedSpeed: 1.15, // GAME  walk 15% faster the day after a good sleep
   // REAL: NASA schedules 8.5 hours of sleep a night for ISS crews (they average about 6)
 };
 
@@ -200,6 +202,8 @@ export const RATS = {
   hungerLoss: 20, //      GAME  health lost at the end of a day they weren't fed
   stormLossPerSec: 1.2, // GAME  health lost per second while left out in a radiation storm
   bonusAt: 70, //         GAME  rats this healthy at the end = science bonus
+  researchGoal: 3, //     GAME  feed the rats on 3 days → research complete
+  researchShield: 0.3, // GAME  then storm radiation is 30% lower for you (rodent research helps NASA protect astronauts)
   // REAL: each ISS Rodent Habitat holds 10 mice or 6 rats for up to 90 days (ISS National Lab)
 };
 

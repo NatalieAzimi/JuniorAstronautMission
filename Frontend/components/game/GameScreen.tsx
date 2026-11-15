@@ -3,7 +3,7 @@
 
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MISSION, RADIATION, RATS, ROCKS, TASKS, TEMP, radiationSpeed } from "@/lib/mission/config";
+import { MISSION, RADIATION, RATS, ROCKS, SLEEP, TASKS, TEMP, radiationSpeed } from "@/lib/mission/config";
 import type { Dest, PartId, StationId, SystemId, TaskId } from "@/lib/mission/config";
 import type { Apod, SpaceWeather } from "@/lib/mission/nasaData";
 import {
@@ -76,6 +76,8 @@ function readHud(s: Sim) {
     overtime: s.overtime >= 0 ? Math.ceil(s.overtime) : -1,
     beaconOn: s.beaconOn,
     rats: { ...s.rats },
+    research: s.research,
+    restMul: s.restMul,
     sleeping: s.sleeping,
     log: s.log.slice(),
     objectives: objectives(s),
@@ -164,7 +166,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
     e.setHidden(s.sheltering);
     e.setCanSprint(!s.sick && !s.winded);
     // resting after a storm = 80% speed; a big total dose slows you down more
-    e.setSpeedMul((s.sick ? 0.8 : 1) * radiationSpeed(s.doseMsv));
+    e.setSpeedMul((s.sick ? 0.8 : 1) * radiationSpeed(s.doseMsv) * (s.restMul < 1 ? SLEEP.restedSpeed : 1));
     e.setBeacon(s.beaconOn);
     e.setPanelDust(1 - s.solarEff);
     e.setRats({ health: s.rats.health, shielded: s.rats.shielded, fed: s.rats.fedToday });
@@ -385,6 +387,11 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
             <span className={`og-chip ${hud.rats.health < 50 ? "hot" : ""}`}>🐀 RATS {Math.round(hud.rats.health)}%</span>
             {hud.sick && <span className="og-chip hot">🤒 RESTING</span>}
             {hud.slowed && <span className="og-chip hot">☢ SLOWED</span>}
+            {hud.restMul < 1 && <span className="og-chip ok">⚡ RESTED</span>}
+            {hud.restMul > 1 && <span className="og-chip hot">🥱 TIRED</span>}
+            <span className={`og-chip ${hud.research >= RATS.researchGoal ? "ok" : ""}`}>
+              🧪 {hud.research >= RATS.researchGoal ? `RADIATION −${Math.round(RATS.researchShield * 100)}%` : `RESEARCH ${hud.research}/${RATS.researchGoal}`}
+            </span>
             {hud.sheltering && <span className="og-chip ok">🛡️ SHELTERED</span>}
           </div>
           {!ended && (
