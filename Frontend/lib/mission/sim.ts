@@ -8,11 +8,7 @@
 // =====================================================================
 
 import {
-<<<<<<< HEAD
-  BREAKDOWN, COMMS, FACTS_EVERY, FAULTS, MISSION, OUTSIDE_TEMP, PARTS, RADIATION, RATES, RATS, SLEEP, STAMINA, START, TASKS, TEMP,
-=======
-  BREAKDOWN, COMMS, FACTS_EVERY, FAULTS, MISSION, OUTSIDE_TEMP, PARTS, RADIATION, RATES, RATS, ROCKS, SLEEP, START, TASKS, TEMP,
->>>>>>> fe0d6dd78c95c02f3c884d50e812b7aa878fddda
+  BREAKDOWN, COMMS, FACTS_EVERY, FAULTS, MISSION, OUTSIDE_TEMP, PARTS, RADIATION, RATES, RATS, ROCKS, SLEEP, STAMINA, START, TASKS, TEMP,
 } from "./config";
 import type { Dest, Effects, PartId, StationId, SystemId, TaskId } from "./config";
 import { factsFor } from "./facts";

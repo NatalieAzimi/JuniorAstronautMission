@@ -1791,6 +1791,25 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   }
 
   // ----- landing pad + beacon + rescue ship -----
+  // A crisp pixel-art ring: fills every pixel whose center sits between the two radii,
+  // drawn as one rectangle per run of pixels in each row (cx, cy sit on a pixel corner)
+  function pixelRing(cx: number, cy: number, rOut: number, rIn: number, c: string) {
+    ctx.fillStyle = c;
+    const R = Math.ceil(rOut);
+    for (let y = -R; y < R; y++) {
+      let start: number | null = null; // where the current run of pixels began (null = no run)
+      for (let x = -R; x <= R; x++) {
+        const d = Math.hypot(x + 0.5, y + 0.5);
+        const fill = x < R && d <= rOut && d >= rIn;
+        if (fill && start === null) start = x;
+        if (!fill && start !== null) {
+          ctx.fillRect(cx + start, cy + y, x - start, 1);
+          start = null;
+        }
+      }
+    }
+  }
+
   function drawPad() {
     const { x, y, w, h } = PAD;
     px(ctx, x + 3, y + 4, w, h, "rgba(0,0,0,0.25)"); // shadow
@@ -1815,9 +1834,8 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     const on = beaconOn && Math.sin(t * 6) > 0;
     const cx = x + w / 2;
     const cy = y + h / 2;
-    disc(ctx, cx, cy, 22, on ? "#7dffb0" : INK);
-    disc(ctx, cx, cy, 18, "#6b7080");
-    disc(ctx, cx, cy, 5, on ? "#7dffb0" : INK);
+    pixelRing(cx, cy, 21.5, 18.5, on ? "#7dffb0" : INK); // even 3-pixel ring
+    pixelRing(cx, cy, 4.5, 0, on ? "#7dffb0" : INK); //       round center dot
     px(ctx, cx - 1, cy - 30, 2, 6, INK);
     px(ctx, cx - 1, cy + 24, 2, 6, INK);
     px(ctx, cx - 30, cy - 1, 6, 2, INK);
