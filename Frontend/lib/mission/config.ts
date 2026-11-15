@@ -101,8 +101,9 @@ export const BREAKDOWN = {
 export const FACTS_EVERY = { min: 2, max: 3 }; // GAME  a new fact every 2–3 tasks
 
 // ---------- Stations & tasks (no free choices) ----------
-export type StationId = "habitat" | "greenhouse" | "recycle" | "conserve" | "solar" | "comms" | "beacon";
-export type TaskId = "heater" | "shelter" | "greenhouse" | "recycle" | "conserve" | "clean" | "call" | "beacon";
+export type StationId = "habitat" | "greenhouse" | "recycle" | "conserve" | "solar" | "comms" | "beacon" | "lab";
+export type TaskId =
+  | "heater" | "shelter" | "greenhouse" | "recycle" | "conserve" | "clean" | "call" | "beacon" | "feedRats" | "shieldRats";
 export type Effects = Partial<{ battery: number; oxygen: number; food: number; tempC: number }>;
 
 export const TASKS: Record<
@@ -149,6 +150,25 @@ export const TASKS: Record<
     effects: { battery: -20 }, needsPower: true,
     teaches: "The rescue ship needs the beacon to find the landing pad.",
   },
+  feedRats: {
+    label: "FEED RATS", verb: "FEED THE LAB RATS", icon: "🐀", secs: 3,
+    effects: { food: -3 }, needsPower: false,
+    teaches: "Animals in space need food, water and care every day, just like astronauts.",
+  },
+  shieldRats: {
+    label: "SHIELD RATS", verb: "MOVE THE RATS TO THE SHIELDED ROOM", icon: "🛡️", secs: 1.5,
+    effects: {}, needsPower: false,
+    teaches: "Space radiation is dangerous for animals too, so they need shielding.",
+  },
+};
+
+// ---------- Rat lab (inspired by NASA's Rodent Research missions on the ISS) ----------
+export const RATS = {
+  start: 100, //          GAME  rat health at the start (%)
+  hungerLoss: 20, //      GAME  health lost at the end of a day they weren't fed
+  stormLossPerSec: 1.2, // GAME  health lost per second while left out in a radiation storm
+  bonusAt: 70, //         GAME  rats this healthy at the end = science bonus
+  // REAL: each ISS Rodent Habitat holds 10 mice or 6 rats for up to 90 days (ISS National Lab)
 };
 
 // ---------- Systems that can break, and the spare part that fixes each ----------
