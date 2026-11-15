@@ -75,7 +75,7 @@ const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; 
   comms: {
     rect: DISH,
     spot: { x: DISH.x - 10, y: DISH.y },
-    label: " TEST",
+    label: " COMMS · EARTH",
     verb: "CALL HOME"
   },
   "solar array": {
@@ -112,7 +112,7 @@ const STATION_IDS = Object.keys(STATIONS) as StationId[];
 const DECOR_LABELS: { rect: Rect; label: string }[] = [
   { rect: HAB, label: "HABITAT" },
   { rect: SOLAR, label: "SOLAR ARRAY" },
-  { rect: DISH, label: "COMMS · EARTH" },
+  //{ rect: DISH, label: "" },
 ];
 
 // ---------- Colours ----------
