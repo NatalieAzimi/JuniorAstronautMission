@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { config } from "@/lib/turn-game/gameLogic";
-import type { Dest } from "@/lib/turn-game/gameLogic";
+import { MISSION } from "@/lib/mission/config";
+import type { Dest } from "@/lib/mission/config";
+import { PLACE } from "@/lib/mission/story";
 import "./houston.css";
+
+// components/briefing/HoustonCall.tsx  (UPDATED: new story + controls)
 
 const PREFERRED_VOICES = ["Alex", "Aaron", "Google US English", "Microsoft Guy", "Microsoft David", "Fred", "Daniel"];
 
@@ -17,18 +20,17 @@ function pickVoice(synth: SpeechSynthesis): SpeechSynthesisVoice | undefined {
 }
 
 function briefing(name: string, dest: Dest): string[] {
-  const c = config[dest];
-  const place = dest === "moon" ? "lunar" : "Martian";
   const delay =
     dest === "moon"
       ? "Radio signals take about one second to reach the Moon, so we can talk almost live."
-      : "Radio signals take anywhere from 3 to 22 minutes to reach Mars, so on a real mission you would make many of these decisions on your own.";
+      : "Radio signals take 3 to 22 minutes to reach Mars, so you'll make most decisions on your own.";
   return [
     `${name}, this is Houston. Do you copy? Over.`,
-    `Welcome to your ${place} outpost, Commander ${name}. You have ${c.totalTurns} turns to keep your crew alive.`,
+    `A solar storm damaged ${PLACE[dest].base}, and the rest of the crew had to fly home. You're the only one left, Commander ${name}.`,
+    `A rescue ship will land in ${MISSION.days} ${dest === "mars" ? "sols" : "days"}. Until then, every decision is yours.`,
     delay,
-    "Rule number one: when the sun goes down, your solar panels make no power. Charge your batteries while the sun is up.",
-    "Watch your battery, oxygen, and food. You can run the greenhouse, recycle the air, or conserve power. Every choice is a trade-off.",
+    "Keep your battery, oxygen, food and cabin temperature above zero. Things will break. Fix them fast.",
+    "Walk with W A S D, hold Shift to sprint, press Space to use a station, E for your inventory and fact book, and Escape for settings.",
     `Houston is counting on you, Commander ${name}. Good luck. Over.`,
   ];
 }

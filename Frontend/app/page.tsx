@@ -1,63 +1,100 @@
 "use client";
 
-import { useState } from "react";
-import { startState } from "@/lib/turn-game/gameLogic";
-import type { Dest, GameState } from "@/lib/turn-game/gameLogic";
+// app/page.tsx  (UPDATED)
+// Screens: title → name → Houston call → game.
+// NEW: downloads real NASA space weather (DONKI) and a sky photo (APOD)
+//      while the player is on the title screen, and ESC opens Settings
+//      on the title screen too.
+
+import { useEffect, useState } from "react";
+import type { Dest } from "@/lib/mission/config";
+import { loadApod, loadSpaceWeather } from "@/lib/mission/nasaData";
+import type { Apod, SpaceWeather } from "@/lib/mission/nasaData";
 import HoustonCall from "@/components/briefing/HoustonCall";
 import HomeHud from "@/components/home/HomeHud";
 import GameScreen from "@/components/game/GameScreen";
+import SettingsMenu from "@/components/menus/SettingsMenu";
 
 export default function Home() {
   const [screen, setScreen] = useState<"title" | "name" | "call" | "game">("title");
   const [dest, setDest] = useState<Dest>("moon");
   const [name, setName] = useState("");
-  const [game, setGame] = useState<GameState>(startState());
+  const [run, setRun] = useState(0); // new number = brand-new mission
+  const [weather, setWeather] = useState<SpaceWeather | null>(null);
+  const [apod, setApod] = useState<Apod | null>(null);
+  const [settings, setSettingsOpen] = useState(false);
 
   const cleanName = name.trim();
 
+  useEffect(() => {
+    loadSpaceWeather().then(setWeather);
+    loadApod().then(setApod);
+  }, []);
+
+  // ESC = settings on the title / name screens (the game screen has its own menu)
+  useEffect(() => {
+    if (screen !== "title" && screen !== "name") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !settings) {
+        e.preventDefault();
+        setSettingsOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [screen, settings]);
+
   function begin() {
     if (!cleanName) return;
-    setGame(startState());
+    setRun((r) => r + 1);
     setScreen("call");
   }
   function retry() {
-    setGame(startState());
+    setRun((r) => r + 1);
+    setScreen("game");
   }
   function backToTitle() {
-    setGame(startState());
     setScreen("title");
   }
 
-  // Homepage (title + name screens): spaceship HUD
   if (screen === "title" || screen === "name") {
     return (
-      <HomeHud
-        screen={screen}
-        dest={dest}
-        setDest={setDest}
-        name={name}
-        setName={setName}
-        onLaunch={() => setScreen("name")}
-        onBegin={begin}
-      />
+      <>
+        <HomeHud
+          screen={screen}
+          dest={dest}
+          setDest={setDest}
+          name={name}
+          setName={setName}
+          weather={weather}
+          onLaunch={() => setScreen("name")}
+          onBegin={begin}
+          onSettings={() => setSettingsOpen(true)}
+        />
+        {settings && <SettingsMenu onClose={() => setSettingsOpen(false)} />}
+      </>
     );
   }
 
-  // Houston call plays over the top-down outpost, then the game starts
+  // Houston call plays over the outpost, then the mission clock starts.
+  // The game waits for the NASA data (at most ~6 s, then archived data is used).
   return (
     <>
+      {!weather ? (
+        <main className="og-wait">📡 Downloading space weather from NASA…</main>
+      ) : (
       <GameScreen
+        key={run}
         dest={dest}
         name={cleanName}
-        game={game}
-        setGame={setGame}
+        weather={weather}
+        apod={apod}
         paused={screen === "call"}
         onRetry={retry}
         onBack={backToTitle}
       />
-      {screen === "call" && (
-        <HoustonCall name={cleanName} dest={dest} onDone={() => setScreen("game")} />
       )}
+      {screen === "call" && <HoustonCall name={cleanName} dest={dest} onDone={() => setScreen("game")} />}
     </>
   );
 }
