@@ -73,7 +73,7 @@ export default function EventCard({ card, onChoose, onClose }: { card: Card; onC
             ))
           ) : (
             <button className="og-launch" onClick={onClose}>
-              {card.kind === "day" ? "▶ START THE DAY" : card.kind === "storm" ? "▶ GO!" : "▶ CONTINUE "}
+              {card.kind === "day" ? "▶ START THE DAY" : card.kind === "storm" ? "▶ GO!" : "▶ CONTINUE"}
             </button>
           )}
         </div>
