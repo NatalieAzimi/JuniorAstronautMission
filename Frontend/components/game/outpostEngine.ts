@@ -31,6 +31,7 @@ export type OutpostOptions = {
   onUse?: (id: StationId) => void;
   onFrame?: (dt: number) => void; // runs every animation frame (the mission clock uses it)
   onQuality?: (q: Quality) => void; // engine switched to low quality because frames were slow
+  onRover?: () => void; // the player checked what the rover found
 };
 
 export type Outpost = {
@@ -74,6 +75,7 @@ const RECYC = R(31, 14, 6, 5);
 const BATT = R(32, 4, 6, 4);
 const DISH = R(21, 20, 3, 3);
 const PAD = R(34, 21, 8, 6);
+const DOCK = R(28, 10, 3, 2); // rover charging dock (flat: you can walk over it)
 const MAST = { x: PAD.x + PAD.w - 14, y: PAD.y + 4, w: 8, h: 10 };
 const SOLIDS = [HAB, SOLAR, GREEN, RECYC, BATT, DISH, MAST];
 
@@ -458,6 +460,14 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   const picked = new Map<number, number>(); // greenhouse plant (row*10+col) → time it has regrown
   let panelDust = 0; // 0 = clean solar panels, 1 = very dusty
   let fix: { tool: "drill" | "tape"; until: number } | null = null; // repair animation
+  // ----- the science rover: drives around, finds something ("!"), then goes home to charge -----
+  const DOCK_SPOT = { x: DOCK.x + DOCK.w / 2, y: DOCK.y + DOCK.h - 8 };
+  type RoverState = "charge" | "drive" | "found" | "happy" | "home";
+  const rover = {
+    x: DOCK_SPOT.x, y: DOCK_SPOT.y, face: 1, state: "charge" as RoverState, timer: 12,
+    route: [] as { x: number; y: number }[], wheel: 0, moving: false,
+  };
+  let pendingRover = false; // walking over to the rover after clicking it
   let canSprint = true;
   let speedMul = 1;
   let beaconOn = false;
@@ -527,7 +537,9 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     } else if ((k === " " || k === "enter" || k === "f") && !(e.target instanceof HTMLButtonElement)) {
       e.preventDefault();
       if (e.repeat) return; // holding the key must not fire job after job
-      if (near && !paused) interact(near);
+      if (paused) return;
+      if (roverNear()) readRover();
+      else if (near) interact(near);
     }
   };
   const onKeyUp = (e: KeyboardEvent) => keys.delete(e.key.toLowerCase());
@@ -540,6 +552,17 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   const onPointerDown = (e: PointerEvent) => {
     if (paused) return;
     const w = toWorld(e.clientX, e.clientY);
+    if (rover.state === "found" && Math.abs(w.x - rover.x) < 12 && w.y > rover.y - 22 && w.y < rover.y + 4) {
+      // clicked the rover: read it, or walk over first
+      if (roverNear()) readRover();
+      else {
+        pendingUse = null;
+        walkTo(rover.x, rover.y + 8);
+        pendingRover = true;
+      }
+      return;
+    }
+    pendingRover = false;
     const hit = STATION_IDS.find((id) => inside(w.x, w.y, STATIONS[id].rect, 6));
     if (hit) {
       if (near === hit) interact(hit);
@@ -626,6 +649,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       target = null;
       route = [];
       pendingUse = null;
+      pendingRover = false;
     } else if (target && !paused && !hidden) {
       let tx = target.x - player.x;
       let ty = target.y - player.y;
@@ -639,6 +663,10 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       if (d < 1.5) {
         target = null;
         if (pendingUse) interact(pendingUse);
+        if (pendingRover) {
+          pendingRover = false;
+          if (roverNear()) readRover();
+        }
       } else {
         dx = tx / d;
         dy = ty / d;
@@ -661,6 +689,8 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
         target = null;
         route = [];
         if (pendingUse && inside(player.x, player.y - 3, STATIONS[pendingUse].rect, 26)) interact(pendingUse);
+        if (pendingRover && roverNear()) readRover();
+        pendingRover = false;
         pendingUse = null;
         stuckFor = 0;
       }
@@ -911,6 +941,117 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       for (let i = 1; i <= 5; i++) {
         px(ctx, hx + dx * (2 + i) + (dx === 0 ? wob : 0), hy + dy * (2 + i) + (dy === 0 ? wob : 0), 2, 1, "#c9ced9");
       }
+    }
+  }
+
+  // ----- rover -----
+  function roverGo(x: number, y: number) {
+    rover.route = findPath(rover.x, rover.y, x, y);
+    return rover.route.length > 0;
+  }
+  function pickRoverSpot() {
+    for (let k = 0; k < 20; k++) {
+      const x = 40 + Math.random() * (WW - 80);
+      const y = 40 + Math.random() * (WH - 70);
+      if (blocked(x, y)) continue;
+      if (STATION_IDS.some((id) => inside(x, y, STATIONS[id].rect, 34))) continue; // stay clear of buildings
+      if (Math.hypot(x - DOCK_SPOT.x, y - DOCK_SPOT.y) < 120) continue; //            go somewhere far-ish
+      if (roverGo(x, y)) return true;
+    }
+    return false;
+  }
+  function updateRover(dt: number) {
+    rover.timer -= dt;
+    rover.moving = false;
+    if (rover.state === "charge") {
+      if (rover.timer <= 0) {
+        if (pickRoverSpot()) rover.state = "drive";
+        else rover.timer = 5;
+      }
+    } else if (rover.state === "found" || rover.state === "happy") {
+      if (rover.timer <= 0) {
+        rover.state = "home"; // after the beep (or if nobody came), drive home
+        roverGo(DOCK_SPOT.x, DOCK_SPOT.y);
+      }
+    } else {
+      let left = 26 * dt; // slow and steady
+      while (left > 0 && rover.route.length) {
+        const tg = rover.route[0];
+        const dx = tg.x - rover.x;
+        const dy = tg.y - rover.y;
+        const d = Math.hypot(dx, dy);
+        if (Math.abs(dx) > 0.3) rover.face = dx > 0 ? 1 : -1;
+        if (d <= left) {
+          rover.x = tg.x;
+          rover.y = tg.y;
+          rover.route.shift();
+          left -= d;
+        } else {
+          rover.x += (dx / d) * left;
+          rover.y += (dy / d) * left;
+          left = 0;
+        }
+        rover.moving = true;
+      }
+      if (rover.moving) rover.wheel += dt * 10;
+      if (!rover.route.length) {
+        if (rover.state === "drive") {
+          rover.state = "found";
+          rover.timer = 25;
+        } else {
+          rover.state = "charge";
+          rover.timer = 22;
+          rover.x = DOCK_SPOT.x;
+          rover.y = DOCK_SPOT.y;
+        }
+      }
+    }
+  }
+  const roverNear = () =>
+    rover.state === "found" && !hidden && Math.hypot(player.x - rover.x, player.y - rover.y) < 24;
+  function readRover() {
+    if (rover.state !== "found") return;
+    rover.state = "happy";
+    rover.timer = 1.2;
+    floats.push({ x: rover.x, y: rover.y - 12, text: "BEEP BOOP!", color: AMBER, age: 0 });
+    opts.onRover?.();
+  }
+
+  function drawDock() {
+    const { x, y, w, h } = DOCK;
+    px(ctx, x + 2, y + 3, w, h, "rgba(0,0,0,0.25)");
+    px(ctx, x, y, w, h, "#4a4e5c");
+    px(ctx, x + 2, y + 2, w - 4, h - 4, "#6b7080");
+    for (let k = 0; k < 4; k++) px(ctx, x + 4 + k * 9, y + 2, 4, 2, AMBER); // hazard stripes
+    // charger post: the light blinks green while the rover charges
+    px(ctx, x + w - 7, y - 10, 5, 14, INK);
+    const on = rover.state === "charge" && Math.sin(t * 4) > 0;
+    px(ctx, x + w - 6, y - 9, 3, 3, on ? "#7dffb0" : "#2a3a30");
+  }
+
+  function drawRover() {
+    const x = Math.round(rover.x);
+    const y = Math.round(rover.y);
+    const f = rover.face;
+    px(ctx, x - 9, y - 1, 18, 2, "rgba(0,0,0,0.3)"); // shadow
+    const wob = rover.moving && Math.floor(rover.wheel) % 2 ? 1 : 0;
+    for (let i = 0; i < 3; i++) {
+      px(ctx, x - 8 + i * 6, y - 4, 4, 4, INK); // wheels
+      px(ctx, x - 7 + i * 6, y - 3 + ((i + wob) % 2), 2, 1, "#5b6170");
+    }
+    px(ctx, x - 8, y - 10, 16, 6, INK); // body
+    px(ctx, x - 7, y - 9, 14, 4, "#e3e7ef");
+    px(ctx, x - 7, y - 9, 14, 1, "#ffffff");
+    px(ctx, x - 6, y - 8, 5, 2, "#2346a8"); // little solar panel
+    px(ctx, x + (f > 0 ? 1 : -5), y - 7, 4, 1, AMBER);
+    const mx = x + f * 5;
+    px(ctx, mx, y - 16, 1, 6, INK); // camera mast
+    px(ctx, mx - 2, y - 19, 5, 4, INK); // camera head
+    px(ctx, mx + (f > 0 ? 1 : -1), y - 18, 2, 2, rover.state === "happy" ? "#7dffb0" : "#3be8ff");
+    if (rover.state === "charge") {
+      const fill = Math.round(8 * clamp(1 - rover.timer / 22, 0, 1)); // battery filling up
+      px(ctx, x - 5, y - 13, 10, 3, INK);
+      px(ctx, x - 4, y - 12, fill, 1, "#7dffb0");
     }
   }
 
@@ -1335,7 +1476,15 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       const ps = toScreen(player.x, player.y - 17);
       tag(ps.x, ps.y - 4, name.toUpperCase() || "ASTRONAUT", { bg: "rgba(2,6,13,0.85)", fg: "#ffffff", border: "rgba(59,232,255,0.6)", size: 10 });
     }
-    if (near && !paused) {
+    if (rover.state === "found") {
+      // the rover found something: a bouncing "!" over its head
+      const rs = toScreen(rover.x, rover.y - 20);
+      const hop = Math.round(Math.abs(Math.sin(t * 6)) * 4);
+      tag(rs.x, rs.y - 6 - hop, "!", { bg: AMBER, fg: "#1b0d00", border: "#ffe0a8", size: 16 });
+      if (roverNear() && !paused)
+        tag(rs.x, rs.y - 36, "[SPACE] SEE WHAT THE ROVER FOUND", { bg: AMBER, fg: "#1b0d00", border: "#ffe0a8", size: 12 });
+    }
+    if (near && !paused && !roverNear()) {
       const info = stationInfo[near];
       const r = STATIONS[near].rect;
       const s = toScreen(r.x + r.w / 2, r.y);
@@ -1393,6 +1542,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     light(RECYC.x + RECYC.w / 2, RECYC.y + RECYC.h / 2, 34, 0.7);
     light(BATT.x + BATT.w / 2, BATT.y + BATT.h / 2, 34, 0.7);
     light(DISH.x + DISH.w / 2, DISH.y + 4, 18, 0.8);
+    light(rover.x + rover.face * 8, rover.y - 6, 22, 0.7); // rover headlights
     if (beaconOn) light(MAST.x + 3, MAST.y - 12, 40, 0.9);
     octx.globalAlpha = 1;
     octx.globalCompositeOperation = "source-over";
@@ -1470,6 +1620,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     last = now;
     t += dt;
     step(dt);
+    if (!paused) updateRover(dt);
     opts.onFrame?.(dt);
 
     // auto quality
@@ -1520,6 +1671,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     ctx.drawImage(ground, 0, 0);
     drawPad();
     drawCables();
+    drawDock();
 
     const items: { y: number; draw: () => void }[] = [
       { y: HAB.y + HAB.h, draw: drawHabitat },
@@ -1529,6 +1681,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       { y: BATT.y + BATT.h, draw: drawBattery },
       { y: DISH.y + DISH.h, draw: drawDish },
       { y: MAST.y + MAST.h, draw: drawMast },
+      { y: rover.y, draw: drawRover },
     ];
     if (!hidden && !inGreenhouse()) items.push({ y: player.y, draw: drawPlayer });
     items.sort((a, b) => a.y - b.y).forEach((i) => i.draw());

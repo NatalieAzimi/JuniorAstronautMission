@@ -248,6 +248,25 @@ function startDay(s: Sim, day: number) {
 }
 
 // ---------- Facts ----------
+// The rover found something: unlock the next fact and show it on a card
+export function roverFact(s: Sim) {
+  if (s.status !== "playing") return;
+  const fid = s.factPool[0];
+  const f = fid ? factsFor(s.dest).find((x) => x.id === fid) : undefined;
+  if (!f) {
+    toast(s, "🤖 Beep boop! The rover has shown you everything it found. Great exploring!", "good");
+    return;
+  }
+  unlockFact(s, f.id, true);
+  s.cards.push({
+    id: `rover-${Math.round(s.elapsed * 10)}`,
+    kind: "event",
+    kicker: "🤖 ROVER DISCOVERY",
+    title: f.title,
+    lines: [f.text, `Source: ${f.credit}`, "📘 Saved to your Fact Book (press E)."],
+  });
+}
+
 function unlockFact(s: Sim, id?: string, quiet = false) {
   let fid = id;
   if (fid) s.factPool = s.factPool.filter((f) => f !== fid);

@@ -20,7 +20,7 @@ import type { Dest, PartId, StationId, SystemId, TaskId } from "@/lib/mission/co
 import type { Apod, SpaceWeather } from "@/lib/mission/nasaData";
 import {
   choose, clockLabel, cToF, dayPhase, dismissCard, isBroken, narratorHint, newSim, objectives, outsideTempC,
-  repair, snapshot, solarOutput, startTask, stationAction, sunLevel, tasksToNextFact, tick,
+  repair, roverFact, snapshot, solarOutput, startTask, stationAction, sunLevel, tasksToNextFact, tick,
 } from "@/lib/mission/sim";
 import type { Card, Diff, RepairMode, Sim, Toast } from "@/lib/mission/sim";
 import { createOutpost, guessQuality } from "./outpostEngine";
@@ -231,6 +231,11 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
       onNear: setNear,
       onUse: (id) => activateStation(id),
       onQuality: setQuality,
+      onRover: () => {
+        roverFact(sim); // the rover's "!" → a fun fact card
+        play("fact");
+        sync();
+      },
       onFrame: (dt) => {
         const s = sim;
         if (!blocked() && s.status === "playing") {
