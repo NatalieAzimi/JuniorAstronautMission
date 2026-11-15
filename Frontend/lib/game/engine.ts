@@ -12,6 +12,7 @@ import {
   DUST,
   LIMITS,
   MISSION,
+  RADIATION,
   RATES_PER_HOUR,
   SOL_LENGTH_MINUTES,
   START_METERS,
@@ -20,7 +21,9 @@ import {
 // Flags the engine itself understands. Story events turn these on
 // through a choice's `flag` field (e.g. flag: "dustStorm").
 export const ENGINE_FLAGS = {
-  dustStorm: "dustStorm", // while set, solar panels make less power
+  dustStorm: "dustStorm",       // while set, solar panels make less power
+  solarStorm: "solarStorm",     // while set, radiation is much higher
+  ratsSheltered: "ratsSheltered", // set by the protectRats action
 };
 
 const METER_KEYS: (keyof Meters)[] = ["oxygen", "food", "power", "shielding"];
@@ -57,6 +60,28 @@ export function lifeSupport(state: GameState): number {
 
 export function isDaylight(state: GameState): boolean {
   return state.minuteOfSol >= DAYLIGHT.sunriseMinute && state.minuteOfSol < DAYLIGHT.sunsetMinute;
+}
+
+// Radiation dose rate in mSv per day. Shielding blocks some of it,
+// and blocks solar storm particles better than everyday cosmic rays.
+function doseRatePerDay(world: World, shielding: number, solarStorm: boolean): number {
+  const blockedAtFull = solarStorm ? RADIATION.stormBlockedAtFullShield : RADIATION.cosmicBlockedAtFullShield;
+  const getsThrough = 1 - blockedAtFull * (shielding / 100);
+  return RADIATION.mSvPerDay[world] * (solarStorm ? RADIATION.solarStormMultiplier : 1) * getsThrough;
+}
+
+// For a radiation readout on screen, e.g. "0.51 mSv per day".
+export function radiationPerDay(state: GameState): number {
+  return doseRatePerDay(state.world, state.meters.shielding, state.flags.includes(ENGINE_FLAGS.solarStorm));
+}
+
+export function ratsAreSheltered(state: GameState): boolean {
+  return state.flags.includes(ENGINE_FLAGS.ratsSheltered);
+}
+
+// True during a solar storm if the rats are NOT in the shielded room.
+export function ratsInDanger(state: GameState): boolean {
+  return state.flags.includes(ENGINE_FLAGS.solarStorm) && !ratsAreSheltered(state);
 }
 
 // e.g. "Sol 2, 14:05"
@@ -100,8 +125,11 @@ export function canDoAction(state: GameState, actionId: string): { ok: boolean; 
   if (actionId === "studyRats" && !state.rats.fedToday) {
     return { ok: false, reason: "Feed the rats first." };
   }
-  if (actionId === "studyRats" && !state.rats.experimentOk) {
-    return { ok: false, reason: "Radiation ruined the rat experiment data." };
+  if (actionId === "studyRats" && ratsInDanger(state)) {
+    return { ok: false, reason: "Solar storm! Move the rats to the shielded room first." };
+  }
+  if (actionId === "protectRats" && ratsAreSheltered(state)) {
+    return { ok: false, reason: "The rats are already in the shielded room." };
   }
   return { ok: true };
 }
@@ -117,7 +145,8 @@ export function newGame(world: World = "mars", seed: number = Date.now()): GameS
     workMinutesLeft: MISSION.workMinutesPerSol,
     meters: { ...START_METERS },
     research: 0,
-    rats: { fedToday: false, experimentOk: true },
+    radiationMsv: 0,
+    rats: { fedToday: false },
     flags: [],
     activeEventId: null,
     log: [],
@@ -159,16 +188,20 @@ export function applyEffects(state: GameState, effects: Effects, reason: string)
 // ---------- time ----------
 
 // Let time pass minute by minute: the crew breathes and eats, solar
-// charges the battery in daylight, and the oxygen generator only works
-// while there is power. Stops early if the crew is evacuated.
+// charges the battery in daylight, the oxygen generator only works
+// while there is power, and the crew absorbs radiation.
+// Stops early if the crew is evacuated.
 export function advanceTime(state: GameState, minutes: number): GameState {
   if (state.status !== "playing" || minutes <= 0) return state;
 
   const solLength = SOL_LENGTH_MINUTES[state.world];
   const storm = state.flags.includes(ENGINE_FLAGS.dustStorm);
+  const solarStorm = state.flags.includes(ENGINE_FLAGS.solarStorm);
+  const ratsExposed = ratsInDanger(state);
   const before: Meters = { ...state.meters };
   const s: GameState = { ...state, meters: { ...state.meters }, rats: { ...state.rats } };
   let powerWentOut = false;
+  let ratsSpoiled = false;
 
   for (let i = 0; i < minutes; i++) {
     const m = s.meters;
@@ -180,7 +213,9 @@ export function advanceTime(state: GameState, minutes: number): GameState {
     const made = m.power > 0 ? RATES_PER_HOUR.oxygenMade : 0; // no power, no new oxygen
     m.oxygen = clamp(m.oxygen + (RATES_PER_HOUR.oxygenBreathed + made) / 60);
     m.food = clamp(m.food + RATES_PER_HOUR.foodEaten / 60);
-    m.shielding = clamp(m.shielding + RATES_PER_HOUR.shieldingWear / 60);
+    const wear = RATES_PER_HOUR.shieldingWear * (solarStorm ? RADIATION.stormShieldingWearMultiplier : 1);
+    m.shielding = clamp(m.shielding + wear / 60);
+    s.radiationMsv += doseRatePerDay(s.world, m.shielding, solarStorm) / (24 * 60);
 
     s.minuteOfSol += 1;
     if (s.minuteOfSol >= solLength) {
@@ -189,6 +224,11 @@ export function advanceTime(state: GameState, minutes: number): GameState {
       s.minuteOfSol = 0;
       s.workMinutesLeft = MISSION.workMinutesPerSol;
       s.rats.fedToday = false;
+      // Rats left unprotected through a solar storm night: the data is spoiled.
+      if (ratsExposed) {
+        s.research = Math.max(0, s.research - 1);
+        ratsSpoiled = true;
+      }
       if (s.sol > MISSION.sols) {
         s.status = "won";
         break;
@@ -203,14 +243,23 @@ export function advanceTime(state: GameState, minutes: number): GameState {
     const diff = round1(s.meters[key] - before[key]);
     if (diff !== 0) changes[key] = diff;
   }
-  let text = `${formatMinutes(minutes)} passed`;
-  if (storm) text += " (dust storm: weak solar power)";
+  if (s.research !== state.research) changes.research = s.research - state.research;
+  const notes: string[] = [];
+  if (storm) notes.push("dust storm: weak solar power");
+  if (solarStorm) notes.push("solar storm: high radiation");
+  notes.push(`radiation +${(s.radiationMsv - state.radiationMsv).toFixed(2)} mSv`);
+  let text = `${formatMinutes(minutes)} passed (${notes.join("; ")})`;
   if (powerWentOut) text += ". Battery empty: the oxygen generator stopped";
+  if (ratsSpoiled) text += ". The rats weren't in the shielded room during the solar storm, so the experiment data was spoiled";
   let result = addLog(s, text, changes);
 
   if (result.status === "won") {
     const goal = result.research >= MISSION.researchGoal ? "Research goal reached!" : "Research goal missed.";
     result = addLog(result, `Mission complete: the relief crew has arrived. ${goal}`);
+    result = addLog(
+      result,
+      `Crew radiation dose: ${result.radiationMsv.toFixed(1)} mSv. NASA's career limit for astronauts is 600 mSv.`
+    );
   }
   return checkStatus(result);
 }
@@ -228,6 +277,8 @@ export function doAction(state: GameState, actionId: string): GameState {
   const minutes = actionMinutes(actionId, state.world);
 
   let s: GameState = { ...state, workMinutesLeft: state.workMinutesLeft - minutes };
+  // The rats count as sheltered from the moment the crew starts moving them.
+  if (actionId === "protectRats") s = { ...s, flags: [...s.flags, ENGINE_FLAGS.ratsSheltered] };
   s = advanceTime(s, minutes);
   if (s.status !== "playing") return s;
 

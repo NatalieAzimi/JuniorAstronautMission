@@ -99,8 +99,16 @@ Then write an event with `"id": "patch_leaks"` and **no** `chance`, so it only h
 
 ## Flags
 
-`dustStorm` is special: while it's on, the solar panels make less power. Any other flag name
-(like `"alarmFixed"`) is just a note the story uses with `hasFlag` / `missingFlag`.
+Three flags are special, because the game itself reacts to them:
+
+- `dustStorm`: while it's on, the solar panels make less power.
+- `solarStorm`: while it's on, radiation is about 12 times higher and shielding wears out faster.
+  Rats that aren't in the shielded room at night spoil the experiment (research -1).
+- `ratsSheltered`: the rats are in the shielded room. The lab action "Move the rats" turns it on,
+  but a choice can turn it on too.
+
+Turn a storm off when it ends, e.g. a "storm passes" event with `"flag": "!solarStorm"`.
+Any other flag name (like `"alarmFixed"`) is just a note the story uses with `hasFlag` / `missingFlag`.
 
 ## Check your file
 
