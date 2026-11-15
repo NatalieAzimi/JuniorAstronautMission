@@ -1621,7 +1621,9 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
 
   function drawDish() {
     const { x, y, w, h } = DISH;
-    shadow(DISH);
+    // shadow shaped like the dish and its base (a square shadow looked off-center)
+    disc(ctx, x + w / 2 + 4, y + 20, 15, "rgba(0,0,0,0.22)");
+    px(ctx, x + 10, y + h - 6, w - 14, 7, "rgba(0,0,0,0.22)");
     px(ctx, x + 6, y + h - 10, w - 12, 10, INK);
     px(ctx, x + 8, y + h - 8, w - 16, 6, "#8a90a0");
     px(ctx, x + w / 2 - 2, y + 18, 4, h - 26, INK);
