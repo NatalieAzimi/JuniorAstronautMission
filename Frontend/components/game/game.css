@@ -1,14 +1,3 @@
-/* =========================================================
-   components/game/game.css  (UPDATED)
-   Top-down game screen (GameScreen.tsx).
-   SPEED: removed backdrop-filter blur (it re-blurred the moving canvas
-   60x a second, the main cause of lag on slower computers).
-   Same colorway as the homepage HUD (hud.css): dark panels,
-   thin cyan outlines, clipped corners, amber highlights.
-   Everything is scoped under .og. Sizes use em, so changing
-   --ui-scale makes the whole HUD bigger or smaller.
-   ========================================================= */
-
 .og {
   --c: #3be8ff;
   --c-dim: rgba(59, 232, 255, 0.4);
@@ -577,25 +566,4 @@
 
 @media (prefers-reduced-motion: reduce) {
   .og * { animation: none !important; transition: none !important; }
-}
-
-/* ---------- Sleeping overlay ---------- */
-.og-sleep {
-  position: absolute;
-  inset: 0;
-  z-index: 8;
-  display: grid;
-  place-content: center;
-  gap: 0.5em;
-  text-align: center;
-  background: rgba(4, 8, 38, 0.45);
-  color: #cfe8ff;
-  border: 0;
-  font: inherit;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-}
-.og-sleep b {
-  font-size: 1.6em;
-  color: #fff;
 }
