@@ -63,6 +63,7 @@ export type Sim = {
   sheltering: boolean;
   rats: { health: number; fedToday: boolean; shielded: boolean; exposedSecs: number }; // the rat lab
   sleeping: boolean; //     asleep in bed: the night runs faster
+  sleepSpeed: number; //    how much faster time runs while asleep
   sleptTonight: boolean;
   restMul: number; //       job time today: rested 0.8, normal 1, tired 1.2
   task: { id: TaskId; station: StationId; left: number; total: number } | null;
@@ -195,7 +196,7 @@ export function newSim(dest: Dest, weather: SpaceWeather, seed = Date.now()): Si
     facts: [], factPool: shuffle(rnd, factsFor(dest).map((f) => f.id)),
     sheltering: false, task: null, call: null,
     rats: { health: RATS.start, fedToday: false, shielded: false, exposedSecs: 0 },
-    sleeping: false, sleptTonight: false, restMul: 1,
+    sleeping: false, sleepSpeed: 1, sleptTonight: false, restMul: 1,
     oneWayLabel, roundTripSec,
     beaconOn: false, overtime: -1, blackout: false,
     status: "playing", ending: null, failMeter: null, failWhy: [],
@@ -381,6 +382,8 @@ function finishTask(s: Sim) {
   if (tk.id === "sleep") {
     s.sleeping = true;
     s.sleptTonight = true;
+    // the rest of the night always takes about SLEEP.realSeconds of real time
+    s.sleepSpeed = Math.max(1, (MISSION.daySeconds - s.t) / SLEEP.realSeconds);
     toast(s, "😴 Good night! The night passes quickly while you sleep.", "info");
     note(s, "🛏️ Went to sleep.");
     if (!s.facts.includes("sleep-85")) unlockFact(s, "sleep-85");
@@ -707,7 +710,7 @@ export type TickInput = { sprinting: boolean };
 
 export function tick(s: Sim, dt: number, input: TickInput) {
   if (s.status !== "playing") return;
-  if (s.sleeping) dt *= SLEEP.speed; // the night passes faster while you sleep
+  if (s.sleeping) dt *= s.sleepSpeed; // the night passes faster while you sleep
   s.t += dt;
   s.elapsed += dt;
 

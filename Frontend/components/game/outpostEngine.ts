@@ -50,6 +50,8 @@ export type Outpost = {
   playFix(id: StationId, tool: "drill" | "tape"): void; // repair animation: power drill + sparks, or duct tape
   setRats(r: RatInfo): void; // rat lab: health, in the shielded room, fed today
   setSleeping(on: boolean): void; // asleep in the bed inside the base
+  emote(icon: string): void; //      a little emoji bubble over the astronaut
+  setMood(icon: string | null): void; // e.g. 🥶 now and then while the cabin is freezing
   setCanSprint(on: boolean): void;
   setSpeedMul(m: number): void;
   setBeacon(on: boolean): void;
@@ -95,8 +97,9 @@ const LOCKERS: Rect = { x: HAB.x + 52, y: HAB.y + 8, w: 40, h: 10 };
 const HEATER: Rect = { x: HAB.x + HAB.w - 36, y: HAB.y + 9, w: 26, h: 12 };
 const TABLE: Rect = { x: HAB.x + 16, y: HAB.y + 52, w: 26, h: 14 };
 const SHELTER_ROOM: Rect = { x: HAB.x + HAB.w - 46, y: HAB.y + HAB.h - 46, w: 40, h: 40 };
+const COUNTER: Rect = { x: HAB.x + 8, y: HAB.y + HAB.h - 16, w: 44, h: 9 }; // dining nook food counter
 const HEATER_SPOT = { x: HEATER.x + HEATER.w / 2, y: HEATER.y + HEATER.h + 10 };
-const SOLIDS = [...BASE_WALLS, BED, LOCKERS, HEATER, TABLE, SHELTER_ROOM, SOLAR, GREEN, RECYC, BATT, DISH, MAST, LAB];
+const SOLIDS = [...BASE_WALLS, BED, LOCKERS, HEATER, TABLE, SHELTER_ROOM, COUNTER, SOLAR, GREEN, RECYC, BATT, DISH, MAST, LAB];
 
 const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; label: string }> = {
   habitat: { rect: HAB, spot: { x: HAB.x + HAB.w / 2, y: HAB.y + HAB.h + 14 }, label: "BASE · HEATER & SHELTER" },
@@ -493,6 +496,13 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   let rats: RatInfo = { health: 100, shielded: false, fed: false };
   let sleeping = false;
   let zzzAt = 0;
+  // cute extras: bootprints in the dust, and emoji bubbles
+  const prints: { x: number; y: number; born: number }[] = [];
+  let stepDist = 0;
+  let leftFoot = false;
+  let emoteIcon = "";
+  let emoteUntil = 0;
+  let mood: string | null = null;
   // Is the astronaut inside the base? (then the roof comes off and you see the rooms)
   const insideBase = () =>
     player.x > HAB.x + WALL && player.x < HAB.x + HAB.w - WALL && player.y > HAB.y + WALL && player.y < HAB.y + HAB.h - 1;
@@ -749,6 +759,18 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
 
     const moved = Math.hypot(player.x - bx, player.y - by);
     player.moving = moved > 0.01;
+    if (player.moving && !insideBase()) {
+      // bootprints in the dust, left-right-left (they fade away after a while)
+      stepDist += moved;
+      if (stepDist > 7) {
+        stepDist = 0;
+        leftFoot = !leftFoot;
+        const across = Math.abs(player.x - bx) > Math.abs(player.y - by);
+        const side = leftFoot ? -2 : 2;
+        prints.push({ x: player.x + (across ? 0 : side), y: player.y + (across ? side / 2 : 0), born: t });
+        if (prints.length > 160) prints.shift();
+      }
+    }
     if (!player.moving) sprinting = false;
     if (target) {
       stuckFor = moved < speed * dt * 0.2 ? stuckFor + dt : 0;
@@ -1104,6 +1126,33 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     opts.onRover?.();
   }
 
+  // The astronaut sprite turned on its side, lying in bed (head on the pillow)
+  function drawSleeper() {
+    const colors: Record<string, string> = {
+      K: INK, W: "#f2f4f8", G: "#a9b0c0", V: "#1b2a6b", H: "#7fe0ff", A: PAL[dest].accent, B: "#c9ced9",
+    };
+    const rows = [...BODY_FRONT, ...LEGS_FRONT[0]];
+    const ox = BED.x + 3;
+    const oy = BED.y + 3;
+    for (let ry = 0; ry < rows.length; ry++)
+      for (let rx = 0; rx < 12; rx++) {
+        const ch = rows[ry][rx];
+        if (ch === "." || ch === undefined) continue;
+        ctx.fillStyle = colors[ch];
+        ctx.fillRect(ox + ry, oy + rx, 1, 1);
+      }
+  }
+
+  // ----- bootprints -----
+  function drawPrints() {
+    while (prints.length && t - prints[0].born > 25) prints.shift();
+    const c = dest === "mars" ? "92,40,24" : "40,42,52";
+    for (const p of prints) {
+      ctx.fillStyle = `rgba(${c},${0.45 * (1 - (t - p.born) / 25)})`;
+      ctx.fillRect(Math.round(p.x) - 1, Math.round(p.y) - 1, 2, 2);
+    }
+  }
+
   // ----- inside the base (roof off): bed, lockers, heater, table, storm shelter -----
   function drawBaseInside() {
     const { x, y, w, h } = HAB;
@@ -1118,16 +1167,13 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     for (let i = 0; i < 4; i++) px(ctx, x + 14 + i * 32, y + 1, 18, 3, night ? "#9ff2ff" : "#7fb2e6"); // windows
     // bed with a pillow and blanket (and the astronaut tucked in when asleep)
     px(ctx, BED.x, BED.y, BED.w, BED.h, INK);
-    px(ctx, BED.x + 1, BED.y + 1, BED.w - 2, BED.h - 2, "#f2f4f8");
-    px(ctx, BED.x + 2, BED.y + 3, 8, BED.h - 6, "#ffffff");
-    if (sleeping) {
-      px(ctx, BED.x + 3, BED.y + 5, 7, 7, INK); // helmet on the pillow
-      px(ctx, BED.x + 4, BED.y + 6, 5, 5, "#f2f4f8");
-      px(ctx, BED.x + 5, BED.y + 7, 3, 3, "#1b2a6b");
-    }
-    px(ctx, BED.x + 11, BED.y + 2, BED.w - 13, BED.h - 4, p.accent2);
-    px(ctx, BED.x + 11, BED.y + 2, 2, BED.h - 4, p.accent);
-    if (sleeping) px(ctx, BED.x + 15, BED.y + 5, BED.w - 19, BED.h - 10, "rgba(255,255,255,0.18)"); // body under the blanket
+    px(ctx, BED.x + 1, BED.y + 1, BED.w - 2, BED.h - 2, "#9fc0ea"); // light blue sheet (so the white suit stands out)
+    px(ctx, BED.x + 2, BED.y + 3, 8, BED.h - 6, "#dfe9f7"); //          pillow
+    if (sleeping) drawSleeper(); // the astronaut lying down, head on the pillow
+    const bx0 = sleeping ? BED.x + 18 : BED.x + 11; // blanket over the legs while sleeping
+    const rise = sleeping && Math.sin(t * 2.2) > 0 ? 1 : 0; // slow breathing
+    px(ctx, bx0, BED.y + 2 - rise, BED.x + BED.w - 2 - bx0, BED.h - 4 + rise, p.accent2);
+    px(ctx, bx0, BED.y + 2 - rise, 2, BED.h - 4 + rise, p.accent);
     // lockers
     px(ctx, LOCKERS.x, LOCKERS.y, LOCKERS.w, LOCKERS.h, INK);
     for (let i = 0; i < 4; i++) {
@@ -1138,12 +1184,60 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     px(ctx, HEATER.x, HEATER.y, HEATER.w, HEATER.h, INK);
     px(ctx, HEATER.x + 1, HEATER.y + 1, HEATER.w - 2, HEATER.h - 2, "#6b7080");
     for (let i = 0; i < 6; i++) px(ctx, HEATER.x + 2 + i * 4, HEATER.y + 2, 2, HEATER.h - 4, pulse.habitat > 0 ? "#ffb35a" : "#c46a3a");
-    // table with a food pouch, and two stools
-    px(ctx, TABLE.x, TABLE.y, TABLE.w, TABLE.h, INK);
-    px(ctx, TABLE.x + 1, TABLE.y + 1, TABLE.w - 2, TABLE.h - 2, "#e3e7ef");
-    px(ctx, TABLE.x + 4, TABLE.y + 4, 5, 4, AMBER);
-    px(ctx, TABLE.x - 6, TABLE.y + 4, 4, 6, INK);
-    px(ctx, TABLE.x + TABLE.w + 2, TABLE.y + 4, 4, 6, INK);
+    // ---- dining nook (just for looks): rug, table set for two, chairs, a flower, a food counter ----
+    const T0 = TABLE;
+    px(ctx, T0.x - 8, T0.y - 8, T0.w + 16, T0.h + 16, "#a85a44"); // rug
+    px(ctx, T0.x - 6, T0.y - 6, T0.w + 12, T0.h + 12, "#c9775a");
+    for (let i = 0; i < 6; i++) {
+      px(ctx, T0.x - 4 + i * 7, T0.y - 5, 2, 1, "#f2c26b");
+      px(ctx, T0.x - 4 + i * 7, T0.y + T0.h + 4, 2, 1, "#f2c26b");
+    }
+    // chairs with backs
+    px(ctx, T0.x - 8, T0.y + 3, 6, 8, INK);
+    px(ctx, T0.x - 7, T0.y + 4, 4, 6, "#5b8def");
+    px(ctx, T0.x - 9, T0.y + 1, 2, 12, INK);
+    px(ctx, T0.x + T0.w + 2, T0.y + 3, 6, 8, INK);
+    px(ctx, T0.x + T0.w + 3, T0.y + 4, 4, 6, "#5b8def");
+    px(ctx, T0.x + T0.w + 7, T0.y + 1, 2, 12, INK);
+    // table, set for two: a space meal and a fresh salad from the greenhouse
+    px(ctx, T0.x, T0.y, T0.w, T0.h, INK);
+    px(ctx, T0.x + 1, T0.y + 1, T0.w - 2, T0.h - 2, "#f2f4f8");
+    px(ctx, T0.x + 2, T0.y + 4, 6, 6, "#c3c8d4");
+    px(ctx, T0.x + 3, T0.y + 5, 4, 4, "#ffffff");
+    px(ctx, T0.x + 4, T0.y + 6, 2, 2, AMBER);
+    px(ctx, T0.x + T0.w - 8, T0.y + 4, 6, 6, "#c3c8d4");
+    px(ctx, T0.x + T0.w - 7, T0.y + 5, 4, 4, "#ffffff");
+    px(ctx, T0.x + T0.w - 6, T0.y + 6, 2, 2, "#7dffb0");
+    px(ctx, T0.x + 9, T0.y + 3, 2, 3, "#3be8ff"); // cups
+    px(ctx, T0.x + T0.w - 11, T0.y + 3, 2, 3, "#3be8ff");
+    px(ctx, T0.x + 12, T0.y + 7, 3, 4, "#8a90a0"); // little vase with a flower
+    px(ctx, T0.x + 13, T0.y + 3, 1, 4, "#2f8f3a");
+    px(ctx, T0.x + 12, T0.y + 1, 3, 3, "#ff9ad8");
+    px(ctx, T0.x + 13, T0.y + 2, 1, 1, "#ffd25a");
+    if (night) {
+      ctx.fillStyle = "rgba(255,210,120,0.16)"; // cozy lamp light over the table
+      ctx.fillRect(T0.x - 4, T0.y - 4, T0.w + 8, T0.h + 8);
+    }
+    // food counter: a food warmer, a water jug, and a fruit bowl
+    px(ctx, COUNTER.x, COUNTER.y, COUNTER.w, COUNTER.h, INK);
+    px(ctx, COUNTER.x + 1, COUNTER.y + 1, COUNTER.w - 2, COUNTER.h - 2, "#e3e7ef");
+    px(ctx, COUNTER.x + 3, COUNTER.y + 1, 12, 6, "#6b7080");
+    px(ctx, COUNTER.x + 5, COUNTER.y + 2, 6, 3, Math.sin(t * 2) > 0 ? "#ffb35a" : "#c46a3a");
+    px(ctx, COUNTER.x + 19, COUNTER.y + 1, 5, 6, "#3be8ff");
+    px(ctx, COUNTER.x + 20, COUNTER.y + 2, 3, 2, "#bff6ff");
+    px(ctx, COUNTER.x + 29, COUNTER.y + 3, 10, 4, "#c3c8d4");
+    px(ctx, COUNTER.x + 30, COUNTER.y + 2, 2, 2, "#ff6a5a");
+    px(ctx, COUNTER.x + 33, COUNTER.y + 2, 2, 2, "#7dffb0");
+    px(ctx, COUNTER.x + 36, COUNTER.y + 2, 2, 2, "#ffd25a");
+    // potted plants
+    const pot = (ppx: number, ppy: number) => {
+      px(ctx, ppx, ppy + 4, 5, 4, "#a85a44");
+      px(ctx, ppx + 1, ppy, 3, 4, "#5fd35a");
+      px(ctx, ppx - 1, ppy + 1, 2, 2, "#2f8f3a");
+      px(ctx, ppx + 4, ppy + 1, 2, 2, "#2f8f3a");
+    };
+    pot(x + 96, y + 24);
+    pot(x + 54, y + 76);
     // storm shelter: thick walls and a radiation sign
     const R2 = SHELTER_ROOM;
     px(ctx, R2.x, R2.y, R2.w, R2.h, INK);
@@ -1750,6 +1844,12 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     if (!hidden && !sleeping) {
       const ps = toScreen(player.x, player.y - 17);
       tag(ps.x, ps.y - 4, name.toUpperCase() || "ASTRONAUT", { bg: "rgba(2,6,13,0.85)", fg: "#ffffff", border: "rgba(59,232,255,0.6)", size: 10 });
+      let bubble = t < emoteUntil ? emoteIcon : "";
+      if (!bubble && mood && t % 5 < 1.4) bubble = mood;
+      if (bubble) {
+        const hop = Math.round(Math.abs(Math.sin(t * 4)) * 2);
+        tag(ps.x, ps.y - 24 - hop, bubble, { bg: "rgba(255,255,255,0.92)", fg: "#1b0d00", border: "#ffffff", size: 13 });
+      }
     }
     if (rover.state === "found") {
       // the rover found something: a bouncing "!" over its head
@@ -1759,7 +1859,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       if (roverNear() && !paused)
         tag(rs.x, rs.y - 36, "[SPACE] SEE WHAT THE ROVER FOUND", { bg: AMBER, fg: "#1b0d00", border: "#ffe0a8", size: 12 });
     }
-    if (near && !paused && !roverNear()) {
+    if (near && !paused && !sleeping && !roverNear()) {
       const info = stationInfo[near];
       const r = reachRect(near);
       const s = toScreen(r.x + r.w / 2, r.y);
@@ -1819,7 +1919,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     light(DISH.x + DISH.w / 2, DISH.y + 4, 18, 0.8);
     light(rover.x + rover.face * 8, rover.y - 6, 22, 0.7); // rover headlights
     light(LAB.x + LAB.w / 2, LAB.y + LAB.h / 2, 44, 0.75);
-    if (insideBase() || sleeping) light(HAB.x + HAB.w / 2, HAB.y + HAB.h / 2, 84, sleeping ? 0.35 : 0.9); // room lights
+    if (insideBase() || sleeping) light(HAB.x + HAB.w / 2, HAB.y + HAB.h / 2, 84, sleeping ? 0.7 : 0.9); // room lights (a night-light while sleeping)
     if (beaconOn) light(MAST.x + 3, MAST.y - 12, 40, 0.9);
     octx.globalAlpha = 1;
     octx.globalCompositeOperation = "source-over";
@@ -1949,6 +2049,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     drawPad();
     drawCables();
     drawDock();
+    drawPrints();
 
     const items: { y: number; draw: () => void }[] = [
       insideBase() || sleeping ? { y: HAB.y, draw: drawBaseInside } : { y: HAB.y + HAB.h, draw: drawHabitat },
@@ -2022,6 +2123,11 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     setProgress(p) { progress = p; },
     setPanelDust(d) { panelDust = clamp(d, 0, 1); },
     setRats(r) { rats = r; },
+    emote(icon) {
+      emoteIcon = icon;
+      emoteUntil = t + 1.8;
+    },
+    setMood(icon) { mood = icon; },
     setSleeping(on) {
       if (on === sleeping) return;
       sleeping = on;

@@ -170,7 +170,7 @@ export const TASKS: Record<
 
 // ---------- Sleep (bed inside the base) ----------
 export const SLEEP = {
-  speed: 8, //       GAME  the night passes 8x faster while you sleep
+  realSeconds: 7, // GAME  a night's sleep always takes about 7 real seconds (the rest of the night speeds by)
   restedMul: 0.8, // GAME  jobs take 20% less time the day after you slept
   tiredMul: 1.2, //  GAME  jobs take 20% longer if you skipped sleep
   // REAL: NASA schedules 8.5 hours of sleep a night for ISS crews (they average about 6)
