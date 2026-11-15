@@ -1,16 +1,5 @@
 "use client";
 
-/**
- * InventoryPanel.tsx  (NEW)
- * FILE LOCATION: Frontend/components/menus/InventoryPanel.tsx
- * STYLES:        Frontend/components/menus/menus.css
- *
- * Opens with E (objectives tab) or ESC (settings tab):
- *   LEFT   = your astronaut, name plate, radiation bar, outpost status
- *   RIGHT  = OBJECTIVES + MISSION LOG · FACT BOOK · DATA SOURCES · SETTINGS + CONTROLS
- *   BOTTOM = hotbar of spare parts for repairs
- * A new Fact Book card unlocks every 2–3 finished jobs.
- */
 
 import { useEffect, useRef, useState } from "react";
 import { FAULTS, PARTS, RADIATION, radiationSpeed } from "@/lib/mission/config";

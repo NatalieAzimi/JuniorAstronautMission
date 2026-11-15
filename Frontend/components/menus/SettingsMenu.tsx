@@ -1,21 +1,5 @@
 "use client";
 
-/**
- * SettingsMenu.tsx
- * FILE LOCATION: Frontend/components/menus/SettingsMenu.tsx
- * STYLES:        Frontend/components/menus/menus.css
- *
- * Retro settings list:
- *   MUSIC ........ ◀ ▮▮▮▮▮▮▯▯▯▯ ▶
- *   SOUNDS ....... ◀ ▮▮▮▮▮▮▮▯▯▯ ▶
- *   DEFAULT
- *   EXIT
- * Keyboard: ↑ ↓ (or W S) choose, ← → (or A D) change, ENTER select, ESC close.
- * Mouse/touch: click the arrows or the words.
- *
- * <SettingsRows>  = just the list (used inside the in-game inventory SETTINGS tab)
- * <SettingsMenu>  = the list in its own pop-up (used on the title screen)
- */
 
 import { useEffect, useState } from "react";
 import { resetSettings, setSettings, useSettings } from "@/lib/settings";
