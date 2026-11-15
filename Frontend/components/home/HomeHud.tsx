@@ -5,6 +5,7 @@ import { config, startState } from "@/lib/turn-game/gameLogic";
 import type { Dest } from "@/lib/turn-game/gameLogic";
 import { destinations } from "@/lib/turn-game/destinations";
 import "./hud.css";
+import { funFacts } from "@/lib/turn-game/funFacts";
 
 type Props = {
   screen: "title" | "name";
@@ -40,6 +41,15 @@ function useEarthClock() {
     return () => clearInterval(id);
   }, []);
   return now ?? "--:--:--";
+}
+function useRotatingFact(dest: Dest) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setI((n) => n + 1), 10000);
+    return () => clearInterval(id);
+  }, [dest]);
+  const list = funFacts[dest];
+  return list[i % list.length];
 }
 
 function Radar({ dest, setDest }: { dest: Dest; setDest: (d: Dest) => void }) {
@@ -146,8 +156,11 @@ function Waveform() {
   );
 }
 
+
+
 export default function HomeHud({ screen, dest, setDest, name, setName, onLaunch, onBegin }: Props) {
   const d = destinations[dest];
+  const fact = useRotatingFact(dest);
   const clock = useEarthClock();
   const cleanName = name.trim();
   const cfg = config[dest];
@@ -245,7 +258,12 @@ export default function HomeHud({ screen, dest, setDest, name, setName, onLaunch
                   Run a lunar or Martian outpost. Balance power, oxygen, and food
                   through every day and night.
                 </p>
-                <p className="hud-blurb">{d.blurb}</p>
+                <p className="hud-blurb" key={fact.text}>
+                    {fact.text}{" "}
+                    <a className="hud-source" href={fact.url} target="_blank" rel="noreferrer">
+                        Source: {fact.source}
+                    </a>
+                </p>
               </>
             ) : (
               <>
