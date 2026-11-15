@@ -13,6 +13,7 @@ const SLOTS: { id: Action; key: string; icon: string; label: string; up: string[
   { id: "greenhouse", key: "1", icon: "🌱", label: "GREENHOUSE", up: ["FOOD", "O₂"], down: ["PWR"] },
   { id: "recycle", key: "2", icon: "💨", label: "RECYCLE AIR", up: ["O₂"], down: ["PWR"] },
   { id: "conserve", key: "3", icon: "🔋", label: "CONSERVE", up: ["PWR"], down: [] },
+  { id: "shield", key:"4", icon: "S", label: "SHIELD", up:["Dur"], down:["PWR"]}
 ];
 
 type Props = {

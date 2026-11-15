@@ -1,5 +1,5 @@
 export type Dest = "moon" | "mars";
-export type Action = "greenhouse" | "conserve" | "recycle"| "comms"| "solar array";
+export type Action = "greenhouse" | "conserve" | "recycle"| "comms"| "solar array"| "shield";
 
 export const config = {
   moon: {
@@ -74,12 +74,16 @@ export function nextTurn(dest: Dest, s: GameState, action: Action): GameState {
   } else if (action === "conserve") {
     power += 4;
     notes.push("You saved power by shutting down extra systems.");
-  } else if (action === "comms") { //fix comms and solar array later
+  } else if (action === "comms") { //fix comms and solar array and shield later
     power += 4;
     notes.push("You called comms.");
   } else if (action === "solar array") {
     power += 4; 
     notes.push("You cleaned the solar panels.");
+  } else if (action === "shield") { 
+    power -= 20;
+    //durability up
+    notes.push("You called comms.");
   } else {
     power -= 10;
     oxygen += 14;
