@@ -1,228 +1,545 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { config, isDay, nextTurn } from "@/lib/turn-game/gameLogic";
-import type { Action, Dest, GameState } from "@/lib/turn-game/gameLogic";
-import { createOutpost } from "./outpostEngine";
-import type { FloatText, Outpost, StationId } from "./outpostEngine";
+/**
+ * GameScreen.tsx  (REWRITTEN)
+ * FILE LOCATION: Frontend/components/game/GameScreen.tsx
+ *
+ * Runs one mission: the canvas world (outpostEngine.ts) + the mission
+ * rules (lib/mission/sim.ts) + the HUD, menus and pop-ups.
+ *
+ * Speed notes (smooth on slow computers):
+ *   • the mission clock runs inside the engine's animation frame,
+ *     NOT through React state
+ *   • React only re-draws the HUD 5 times a second
+ *   • the engine drops to "low quality" by itself if frames are slow
+ */
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { MISSION, RADIATION, TASKS, TEMP } from "@/lib/mission/config";
+import type { Dest, PartId, StationId, SystemId, TaskId } from "@/lib/mission/config";
+import type { Apod, SpaceWeather } from "@/lib/mission/nasaData";
+import {
+  choose, clockLabel, cToF, dayPhase, dismissCard, isBroken, narratorHint, newSim, objectives, outsideTempC,
+  repair, snapshot, solarOutput, startTask, stationAction, sunLevel, tasksToNextFact, tick,
+} from "@/lib/mission/sim";
+import type { Card, Diff, RepairMode, Sim, Toast } from "@/lib/mission/sim";
+import { createOutpost, guessQuality } from "./outpostEngine";
+import type { FloatText, Outpost, Quality, StationInfo } from "./outpostEngine";
+import EventCard from "./EventCard";
+import RepairGame from "./RepairGame";
+import InventoryPanel from "@/components/menus/InventoryPanel";
+import SettingsMenu from "@/components/menus/SettingsMenu";
+import { play } from "@/lib/sfx";
 import "./game.css";
 
-// Each hotbar slot is one of the real game actions.
-// The station ids in the world match the Action names in gameLogic.ts.
-const SLOTS: { id: Action; key: string; icon: string; label: string; up: string[]; down: string[] }[] = [
-  { id: "greenhouse", key: "1", icon: "🌱", label: "GREENHOUSE", up: ["FOOD", "O₂"], down: ["PWR"] },
-  { id: "recycle", key: "2", icon: "💨", label: "RECYCLE AIR", up: ["O₂"], down: ["PWR"] },
-  { id: "conserve", key: "3", icon: "🔋", label: "CONSERVE", up: ["PWR"], down: [] },
-  { id: "shield", key:"4", icon: "S", label: "SHIELD", up:["Dur"], down:["PWR"]}
+// Hotbar: keys 1–7 walk to that station and use it
+const SLOTS: { id: StationId; key: string; icon: string; label: string; task: TaskId }[] = [
+  { id: "habitat", key: "1", icon: "🔥", label: "HEATER", task: "heater" },
+  { id: "greenhouse", key: "2", icon: "🌱", label: "GREENHOUSE", task: "greenhouse" },
+  { id: "recycle", key: "3", icon: "♻️", label: "RECYCLE AIR", task: "recycle" },
+  { id: "conserve", key: "4", icon: "🔌", label: "CONSERVE", task: "conserve" },
+  { id: "solar", key: "5", icon: "🧹", label: "CLEAN PANELS", task: "clean" },
+  { id: "comms", key: "6", icon: "📡", label: "CALL HOUSTON", task: "call" },
+  { id: "beacon", key: "7", icon: "🚨", label: "BEACON", task: "beacon" },
 ];
+const STATIONS: StationId[] = SLOTS.map((s) => s.id);
 
 type Props = {
   dest: Dest;
   name: string;
-  game: GameState;
-  setGame: (g: GameState) => void;
+  weather: SpaceWeather; // page.tsx waits for NASA data before showing the game
+  apod: Apod | null;
   paused?: boolean; // true while the Houston call is on screen
   onRetry: () => void;
   onBack: () => void;
 };
 
-function hint(dest: Dest, game: GameState, name: string): string {
-  const day = isDay(dest, game.turn);
-  const nextIsNight = !isDay(dest, game.turn + 1);
-  if (!day && game.power < 30) return `${name}, power is low and the panels are dark. Conserve energy at the battery bank!`;
-  if (game.oxygen < 30) return `${name}, oxygen is low. Walk to the air recycler!`;
-  if (game.food < 30) return `${name}, food is running low. Tend the greenhouse!`;
-  if (day && nextIsNight) return `Night is coming, ${name}. Make sure the batteries are charged.`;
-  if (day && game.power < 60) return `The sun is up, ${name}. A good time to recharge.`;
-  if (!day) return "It's night. The solar panels are dark, so watch your batteries.";
-  return `All systems steady, ${name}. Walk to a station to make your next move.`;
+type Hud = ReturnType<typeof readHud>;
+
+function readHud(s: Sim) {
+  return {
+    day: s.day,
+    clock: clockLabel(s),
+    phase: dayPhase(s),
+    sun: sunLevel(s),
+    battery: s.battery,
+    oxygen: s.oxygen,
+    food: s.food,
+    tempC: s.tempC,
+    outside: outsideTempC(s),
+    solarPct: Math.round((solarOutput(s) / 0.62) * 100),
+    solarEff: s.solarEff,
+    blackout: s.blackout,
+    sick: s.sick,
+    sheltering: s.sheltering,
+    storm: s.storm.phase,
+    stormLeft: Math.max(0, Math.ceil(s.storm.endsAt - s.elapsed)),
+    stormDose: s.stormDose,
+    flare: s.storm.flare?.classType ?? "",
+    dose: s.doseMsv,
+    dust: s.elapsed < s.dustUntil,
+    cold: s.coldDay || s.elapsed < s.coldUntil,
+    commsWeak: s.commsWeak,
+    calling: s.call ? Math.max(0, Math.ceil(s.call.arrivesAt - s.elapsed)) : -1,
+    overtime: s.overtime >= 0 ? Math.ceil(s.overtime) : -1,
+    beaconOn: s.beaconOn,
+    hint: narratorHint(s),
+    log: s.log.slice(0, 4),
+    status: s.status,
+    ending: s.ending,
+    failWhy: s.failWhy,
+    stats: s.stats,
+    tasksDone: s.tasksDone,
+    facts: s.facts.length,
+    oneWay: s.oneWayLabel,
+    parts: { ...s.parts } as Record<PartId, number>,
+    broken: (Object.keys(s.broken) as SystemId[]).filter((id) => isBroken(s, id)),
+    patched: (Object.keys(s.broken) as SystemId[]).filter((id) => !isBroken(s, id)),
+    actions: Object.fromEntries(STATIONS.map((id) => [id, stationAction(s, id)])) as Record<StationId, ReturnType<typeof stationAction>>,
+  };
 }
 
-// Turn the change between two states into "+10 FOOD" style floating text
-function diff(a: GameState, b: GameState): FloatText[] {
+const level = (v: number) => (v >= 60 ? "ok" : v >= 30 ? "mid" : "low");
+
+function floatsFor(a: Diff, b: Diff): FloatText[] {
   const out: FloatText[] = [];
   const add = (v: number, label: string, color: string) => {
-    if (v !== 0) out.push({ text: `${v > 0 ? "+" : ""}${v} ${label}`, color: v > 0 ? color : "#ff9d95" });
+    const r = Math.round(v);
+    if (Math.abs(r) >= 2) out.push({ text: `${r > 0 ? "+" : ""}${r} ${label}`, color: r > 0 ? color : "#ff9d95" });
   };
-  add(b.power - a.power, "PWR", "#ffb347");
+  add(b.battery - a.battery, "PWR", "#ffb347");
   add(b.oxygen - a.oxygen, "O₂", "#3be8ff");
   add(b.food - a.food, "FOOD", "#7dffb0");
+  add(b.tempC - a.tempC, "°C", "#ff9a6b");
   return out;
 }
 
-export default function GameScreen({ dest, name, game, setGame, paused = false, onRetry, onBack }: Props) {
+export default function GameScreen({ dest, name, weather, apod, paused = false, onRetry, onBack }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engine = useRef<Outpost | null>(null);
+  // One mission = one Sim object. tick() changes it in place every frame;
+  // React reads a copy (hud) 5 times a second.
+  const [sim] = useState<Sim>(() => newSim(dest, weather));
+  const [hud, setHud] = useState<Hud>(() => readHud(sim));
+  const [card, setCard] = useState<Card | null>(null);
+  const [menu, setMenu] = useState<"none" | "settings" | "inventory">("none");
+  const [repairing, setRepairing] = useState<SystemId | null>(null);
+  const [toasts, setToasts] = useState<(Toast & { born: number })[]>([]);
   const [near, setNear] = useState<StationId | null>(null);
+  const [quality, setQuality] = useState<Quality>("high");
 
-  const cfg = config[dest];
-  const day = isDay(dest, game.turn);
-  const ended = game.status !== "playing";
-  const shownTurn = Math.min(game.turn, cfg.totalTurns);
-  const sol = dest === "mars" ? Math.ceil(shownTurn / 2) : null;
-
-  // Keep the latest values in refs so the engine's callbacks never go stale
-  const live = useRef({ dest, game, ended, setGame });
-  useLayoutEffect(() => {
-    live.current = { dest, game, ended, setGame };
+  // live values for callbacks that outlive renders
+  const live = useRef({ paused, menu, card, repairing });
+  useEffect(() => {
+    live.current = { paused, menu, card, repairing };
   });
+  const blocked = () => {
+    const l = live.current;
+    return l.paused || l.menu !== "none" || !!l.card;
+  };
 
-  function act(a: Action) {
-    const { dest: d, game: g, ended: over, setGame: set } = live.current;
-    if (over) return;
-    const next = nextTurn(d, g, a);
-    engine.current?.feedback(a, diff(g, next));
-    set(next);
+  const pendingTask = useRef<{ station: StationId; before: Diff } | null>(null);
+  const seenToast = useRef(0);
+  const lastHud = useRef(0);
+  const lastSync = useRef(0);
+  const endHandled = useRef(false);
+
+  const sync = useCallback(() => {
+    const s = sim;
+    const e = engine.current;
+    if (!e) return;
+    e.setDarkness(1 - sunLevel(s));
+    e.setStatus({ power: s.battery, oxygen: s.oxygen, food: s.food });
+    const info: Partial<Record<StationId, StationInfo>> = {};
+    for (const id of STATIONS) {
+      const a = stationAction(s, id);
+      info[id] = { verb: a.verb, broken: a.kind === "repair", blocked: a.kind === "blocked" };
+    }
+    e.setStations(info);
+    e.setWeather({
+      storm: s.storm.phase === "warning" ? 1 : s.storm.phase === "active" ? 2 : 0,
+      dust: s.elapsed < s.dustUntil,
+      cold: s.coldDay || s.elapsed < s.coldUntil,
+    });
+    e.setHidden(s.sheltering);
+    e.setCanSprint(!s.sick);
+    e.setSpeedMul(s.sick ? 0.8 : 1);
+    e.setBeacon(s.beaconOn);
+
+    // new toasts → screen + sounds
+    const fresh = s.toasts.filter((t) => t.id > seenToast.current);
+    if (fresh.length) {
+      seenToast.current = fresh[fresh.length - 1].id;
+      const now = performance.now();
+      setToasts((old) => [...old.filter((t) => now - t.born < 5000), ...fresh.map((t) => ({ ...t, born: now }))].slice(-4));
+      const kinds = fresh.map((t) => t.kind);
+      if (fresh.some((t) => t.text.startsWith("⚠ BREAKDOWN") || t.text.includes("failed!"))) play("break");
+      else if (kinds.includes("fact")) play("fact");
+      else if (kinds.includes("bad")) play("alarm");
+      else if (kinds.includes("good")) play("done");
+    }
+    // pop-up cards
+    const top = s.cards[0] ?? null;
+    if (top !== live.current.card) {
+      if (top?.kind === "storm") play("alarm");
+      if (top?.kind === "houston") play("radio");
+      setCard(top);
+    }
+  }, [sim]);
+
+  function activateStation(id: StationId) {
+    const s = sim;
+    if (blocked() || live.current.repairing || s.status !== "playing") return;
+    if (s.task) return;
+    const a = stationAction(s, id);
+    if (a.kind === "repair") {
+      setRepairing(a.system);
+      play("click");
+      return;
+    }
+    const before = snapshot(s);
+    const r = startTask(s, id);
+    if (r.kind === "task") {
+      pendingTask.current = { station: id, before };
+      play("click");
+    } else if (r.kind === "blocked") play("error");
+    sync();
   }
 
-  // Create the world once
+  function finishRepair(mode: RepairMode) {
+    if (repairing) {
+      const before = snapshot(sim);
+      repair(sim, repairing, mode);
+      engine.current?.feedback(repairing, floatsFor(before, snapshot(sim)));
+    }
+    setRepairing(null);
+    sync();
+  }
+
+  // ---- the engine + mission clock ----
   useEffect(() => {
     const c = canvasRef.current;
     if (!c) return;
+    const q = guessQuality();
+    setQuality(q);
     const e = createOutpost(c, {
       dest,
       name,
+      quality: q,
       onNear: setNear,
-      onUse: (id) => act(id),
+      onUse: (id) => activateStation(id),
+      onQuality: setQuality,
+      onFrame: (dt) => {
+        const s = sim;
+        if (!blocked() && s.status === "playing") {
+          const wasTask = s.task;
+          tick(s, dt, { sprinting: e.isSprinting() });
+          // a job just finished → floating numbers
+          if (wasTask && !s.task && pendingTask.current) {
+            e.feedback(pendingTask.current.station, floatsFor(pendingTask.current.before, snapshot(s)));
+            pendingTask.current = null;
+          }
+        }
+        e.setProgress(s.task ? 1 - s.task.left / s.task.total : null);
+        // greenhouse = walk in and harvest, storm shelter = walk into the habitat
+        e.setScene(s.task?.id === "greenhouse" ? "harvest" : s.task?.id === "shelter" ? "shelter" : null);
+        const now = performance.now();
+        if (now - lastSync.current > 100) {
+          lastSync.current = now;
+          sync();
+        }
+        if (now - lastHud.current > 200) {
+          lastHud.current = now;
+          setHud(readHud(s));
+        }
+      },
     });
     engine.current = e;
+    sync();
     return () => e.destroy();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => engine.current?.setDest(dest), [dest]);
-  useEffect(() => engine.current?.setName(name), [name]);
-  useEffect(() => engine.current?.setNight(!day), [day]);
-  useEffect(() => engine.current?.setPaused(paused || ended), [paused, ended]);
-  useEffect(
-    () => engine.current?.setStatus({ power: game.power, oxygen: game.oxygen, food: game.food }),
-    [game.power, game.oxygen, game.food],
-  );
+  const anyOverlay = paused || menu !== "none" || !!card || !!repairing || hud.status !== "playing";
+  useEffect(() => engine.current?.setPaused(anyOverlay), [anyOverlay]);
 
-  // Number keys 1-3: walk to that station and use it
+  // win / lose
+  useEffect(() => {
+    if (hud.status === "playing" || endHandled.current) return;
+    endHandled.current = true;
+    if (hud.status === "won") {
+      engine.current?.setLanding(true);
+      play("win");
+    } else play("lose");
+  }, [hud]);
+
+  // ---- keyboard: E inventory, ESC settings, 1–7 quick travel ----
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (paused || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
-      const slot = SLOTS.find((s) => s.key === e.key);
-      if (slot && !live.current.ended) engine.current?.goUse(slot.id);
+      const l = live.current;
+      if (l.paused || l.card || l.repairing) return;
+      const k = e.key.toLowerCase();
+      if (l.menu === "none") {
+        if (k === "escape") {
+          e.preventDefault();
+          setMenu("settings");
+          play("click");
+        } else if (k === "e" || k === "tab" || k === "i") {
+          e.preventDefault();
+          if (sim.status === "playing") {
+            setMenu("inventory");
+            play("click");
+          }
+        } else if (!e.repeat) {
+          const slot = SLOTS.find((s) => s.key === k);
+          if (slot) engine.current?.goUse(slot.id);
+        }
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [paused]);
+  }, [sim]);
+
+  // expire toasts
+  useEffect(() => {
+    if (!toasts.length) return;
+    const id = window.setTimeout(() => {
+      const now = performance.now();
+      setToasts((old) => old.filter((t) => now - t.born < 5000));
+    }, 1000);
+    return () => window.clearTimeout(id);
+  }, [toasts]);
+
+  const s = sim;
+  const isMars = dest === "mars";
+  const dayWord = isMars ? "SOL" : "DAY";
+  const phaseWord = hud.sun > 0.95 ? "DAYLIGHT" : hud.sun > 0.05 ? (hud.phase > 0.9 ? "SUNRISE" : "SUNSET") : "NIGHT";
+  const tempPct = Math.max(0, Math.min(100, (hud.tempC / 32) * 100));
+  const ended = hud.status !== "playing";
 
   const meters = [
-    { cls: "power", label: "BATTERY", v: game.power },
-    { cls: "oxygen", label: "OXYGEN", v: game.oxygen },
-    { cls: "food", label: "FOOD", v: game.food },
+    { cls: "power", label: "BATTERY", icon: "🔋", v: hud.battery },
+    { cls: "oxygen", label: "OXYGEN", icon: "💨", v: hud.oxygen },
+    { cls: "food", label: "FOOD", icon: "🍎", v: hud.food },
   ];
 
-  return (
-    <main className={`og ${dest} ${day ? "" : "night"}`}>
-      <canvas ref={canvasRef} className="og-canvas" aria-label="Outpost map. Walk to a station to use it." />
-      <div className="og-scan" aria-hidden="true" />
-      <span className="og-corner tl" /><span className="og-corner tr" />
-      <span className="og-corner bl" /><span className="og-corner br" />
+  const costChips = (task: TaskId) => {
+    const e = TASKS[task].effects;
+    const chips: { t: string; up: boolean }[] = [];
+    if (e.food) chips.push({ t: "FOOD", up: e.food > 0 });
+    if (e.oxygen) chips.push({ t: "O₂", up: e.oxygen > 0 });
+    if (e.tempC) chips.push({ t: "°C", up: e.tempC > 0 });
+    if (e.battery) chips.push({ t: "PWR", up: e.battery > 0 });
+    return chips;
+  };
 
-      {/* Top-left: who you are + Mission Control */}
+  return (
+    <main className={`og ${dest} ${hud.sun < 0.5 ? "night" : ""} ${quality === "low" ? "lowfx" : ""} ${hud.blackout ? "blackout" : ""}`}>
+      <canvas ref={canvasRef} className="og-canvas" aria-label="Outpost map. Walk to a building and press space to use it." />
+      <div className="og-scan" aria-hidden="true" />
+      {hud.cold && <div className="og-frost" aria-hidden="true" />}
+
+      {/* ---------- Top-left: commander + narrator ---------- */}
       <div className="og-tl">
         <section className="og-cmd og-frame">
-          <p className="og-kicker">COMMANDER</p>
+          <p className="og-kicker">COMMANDER · {isMars ? "JEZERO CRATER, MARS" : "MOON SOUTH POLE"}</p>
           <h2 className="og-name">{name.toUpperCase()}</h2>
           <div className="og-chips">
-            <span className="og-chip target">TARGET: {cfg.name.toUpperCase()}</span>
-            <span className={`og-chip ${day ? "day" : "nite"}`}>{day ? "☀ DAY" : "☾ NIGHT"}</span>
+            <span className="og-chip target">🚀 RESCUE: END OF {dayWord} {MISSION.days}</span>
+            {hud.sick && <span className="og-chip hot">🤒 RESTING</span>}
+            {hud.sheltering && <span className="og-chip ok">🛡️ SHELTERED</span>}
           </div>
         </section>
         {!ended && (
           <p className="og-hint og-frame">
-            <b>📡 HOUSTON:</b> {hint(dest, game, name)}
+            <b>📖 NARRATOR:</b> {hud.hint}
           </p>
         )}
       </div>
 
-      {/* Top-right: clock, like the inspo's date panel */}
+      {/* ---------- Top-right: real-time clock ---------- */}
       <div className="og-tr">
         <section className="og-clock og-frame">
           <span className="og-sol">
-            {sol ? `SOL ${sol} · ` : ""}
-            {day ? "DAYTIME" : "NIGHTTIME"}
+            {dayWord} {hud.day} / {MISSION.days} · {phaseWord}
           </span>
-          <b className="og-turn">
-            TURN {String(shownTurn).padStart(2, "0")} / {cfg.totalTurns}
-          </b>
+          <b className="og-turn">{hud.clock}</b>
+          <div className="og-daybar" aria-label="Day and night">
+            <i className="og-sunset" style={{ left: `${MISSION.sunset * 100}%` }} />
+            <i className="og-now" style={{ left: `${hud.phase * 100}%` }}>{hud.sun > 0.5 ? "☀" : "☾"}</i>
+          </div>
         </section>
-        <section className={`og-solar og-frame ${day ? "" : "off"}`}>
-          <i className="og-sun" /> SOLAR {day ? `+${cfg.solar} / TURN` : "OFFLINE"}
+        <section className={`og-solar og-frame ${hud.solarPct > 3 ? "" : "off"}`}>
+          <i className="og-sun" /> SOLAR {hud.solarPct > 3 ? `${hud.solarPct}%` : "OFFLINE"}
+          {hud.solarEff < 0.95 && <em> · DUSTY {Math.round(hud.solarEff * 100)}%</em>}
         </section>
-        <button className="og-btn" onClick={onBack}>‹ CHANGE DESTINATION</button>
+        <section className="og-solar og-frame">
+          🌡 OUTSIDE {hud.outside} °C <em>({isMars ? "Curiosity REMS" : "LRO Diviner"})</em>
+        </section>
+        <section className={`og-solar og-frame ${hud.commsWeak ? "off" : ""}`}>
+          📡 RADIO DELAY {hud.oneWay}
+          {hud.commsWeak ? " · NO SIGNAL" : hud.calling >= 0 ? ` · REPLY IN ${hud.calling}s` : ""}
+        </section>
+        <div className="og-btnrow">
+          <button className="og-btn" onClick={() => { setMenu("inventory"); play("click"); }} disabled={ended}>🎒 INVENTORY · E</button>
+          <button className="og-btn" onClick={() => { setMenu("settings"); play("click"); }}>☰ MENU · ESC</button>
+        </div>
       </div>
 
-      {/* Bottom-left: last report */}
+      {/* ---------- Top-centre: alerts ---------- */}
+      <div className="og-alerts" aria-live="polite">
+        {hud.blackout && <p className="og-banner bad">🔌 BLACKOUT! Air &amp; heat are OFF. Conserve power at the battery bank!</p>}
+        {hud.storm === "warning" && (
+          <p className="og-banner warn">☢ {hud.flare} FLARE: STORM HITS IN {hud.stormLeft}s → SHELTER IN THE HABITAT</p>
+        )}
+        {hud.storm === "active" && (
+          <p className="og-banner bad">☢ RADIATION STORM · {hud.stormLeft}s LEFT {hud.sheltering ? "· YOU ARE SAFE" : "· GET TO SHELTER!"}</p>
+        )}
+        {hud.overtime >= 0 && <p className="og-banner bad">🚀 SHIP CAN&apos;T FIND THE PAD! POWER THE BEACON ({hud.overtime}s)</p>}
+        {toasts.map((t) => (
+          <p key={t.id} className={`og-toast ${t.kind}`}>{t.text}</p>
+        ))}
+      </div>
+
+      {/* ---------- Radiation meter (appears in storms) ---------- */}
+      {(hud.storm !== "none" || hud.stormDose > 0.05) && !ended && (
+        <section className="og-rad og-frame" aria-label="Radiation meter">
+          <p className="og-kicker">☢ STORM RADIATION DOSE</p>
+          <div className="og-radbar">
+            <i className="fill" style={{ width: `${Math.min(100, (hud.stormDose / (RADIATION.sickAt * 1.4)) * 100)}%` }} />
+            <i className="mark" style={{ left: `${(RADIATION.sickAt / (RADIATION.sickAt * 1.4)) * 100}%` }} title="Rest order" />
+          </div>
+          <p className="og-radtxt">
+            <b>{hud.stormDose.toFixed(1)} mSv</b> · normal ISS day: {RADIATION.issPerDay.low}–{RADIATION.issPerDay.high} mSv · rest order at {RADIATION.sickAt}
+          </p>
+        </section>
+      )}
+
+      {/* ---------- Bottom-left: log ---------- */}
       <section className="og-log og-frame">
-        <p className="og-kicker">LAST REPORT</p>
-        <p className="og-report">{game.log || "Awaiting orders… walk to a station and press E."}</p>
-        <p className="og-tip">WASD / ARROWS · CLICK TO WALK · E TO USE · 1–3 QUICK</p>
-        <p className="og-credit">{cfg.note}</p>
+        <p className="og-kicker">MISSION LOG</p>
+        <ul className="og-report">
+          {hud.log.map((l, i) => (
+            <li key={i}>{l}</li>
+          ))}
+        </ul>
+        <p className="og-tip">WASD MOVE · SHIFT SPRINT · SPACE USE · E INVENTORY · ESC MENU · 1–7 QUICK</p>
       </section>
 
-      {/* Bottom-centre: day/night timeline + hotbar */}
+      {/* ---------- Bottom-centre: station hotbar ---------- */}
       <div className="og-bottom">
-        <div className="og-timeline" title="Day and night schedule">
-          {Array.from({ length: cfg.totalTurns }, (_, i) => {
-            const t = i + 1;
+        <div className="og-hotbar og-frame">
+          {SLOTS.map((sl) => {
+            const a = hud.actions[sl.id];
+            const broken = a.kind === "repair";
+            const dim = a.kind === "blocked";
+            const label = sl.id === "habitat" && a.kind === "task" && a.task === "shelter" ? "SHELTER" : sl.id === "habitat" && a.kind === "leave" ? "LEAVE" : sl.label;
+            const icon = label === "SHELTER" || label === "LEAVE" ? "🛡️" : sl.icon;
             return (
-              <span
-                key={t}
-                className={`og-tick ${isDay(dest, t) ? "d" : "n"} ${t === game.turn && !ended ? "now" : ""} ${t < game.turn ? "past" : ""}`}
-              />
+              <button
+                key={sl.id}
+                className={`og-slot ${near === sl.id ? "near" : ""} ${broken ? "broken" : ""} ${dim ? "dim" : ""}`}
+                disabled={ended || anyOverlay}
+                onClick={() => engine.current?.goUse(sl.id)}
+                title={a.kind === "blocked" ? a.reason : a.verb}
+              >
+                <span className="og-key">{sl.key}</span>
+                <span className="og-ico">{broken ? "⚠" : icon}</span>
+                <span className="og-lbl">{broken ? "REPAIR" : label}</span>
+                <span className="og-cost">
+                  {!broken &&
+                    label !== "SHELTER" &&
+                    label !== "LEAVE" &&
+                    costChips(sl.task).map((c) => (
+                      <span key={c.t} className={c.up ? "up" : "dn"}>{c.up ? "▲" : "▼"}{c.t}</span>
+                    ))}
+                </span>
+              </button>
             );
           })}
         </div>
-        <div className="og-hotbar og-frame">
-          {SLOTS.map((s) => (
-            <button
-              key={s.id}
-              className={`og-slot ${near === s.id ? "near" : ""}`}
-              disabled={ended || paused}
-              onClick={() => engine.current?.goUse(s.id)}
-              title={near === s.id ? "Use now" : "Walk there and use it"}
-            >
-              <span className="og-key">{s.key}</span>
-              <span className="og-ico">{s.icon}</span>
-              <span className="og-lbl">{s.label}</span>
-              <span className="og-cost">
-                {s.up.map((u) => <span key={u} className="up">▲{u}</span>)}
-                {s.down.map((u) => <span key={u} className="dn">▼{u}</span>)}
-              </span>
-            </button>
-          ))}
-        </div>
       </div>
 
-      {/* Bottom-right: battery-style meters */}
-      <section className="og-meters og-frame" aria-label="Supplies">
+      {/* ---------- Bottom-right: 4 survival meters ---------- */}
+      <section className="og-meters og-frame" aria-label="Survival meters">
         {meters.map((m) => (
-          <div key={m.cls} className={`og-meter ${m.cls} ${m.v < 30 ? "low" : ""}`}>
-            <div className="og-cell" role="meter" aria-valuenow={m.v} aria-valuemin={0} aria-valuemax={100} aria-label={m.label}>
+          <div key={m.cls} className={`og-meter ${m.cls} ${level(m.v)}`}>
+            <div className="og-cell" role="meter" aria-valuenow={Math.round(m.v)} aria-valuemin={0} aria-valuemax={100} aria-label={m.label}>
               <i className="og-fill" style={{ height: `calc(${m.v}% - 4px)` }} />
             </div>
-            <b className="og-mval">{m.v}</b>
-            <span className="og-mlabel">{m.label}</span>
+            <b className="og-mval">{Math.round(m.v)}</b>
+            <span className="og-mlabel">{m.icon} {m.label}</span>
           </div>
         ))}
+        <div className={`og-meter temp ${hud.tempC < TEMP.danger ? "low" : hud.tempC < TEMP.goalMin ? "mid" : "ok"}`}>
+          <div className="og-thermo" role="meter" aria-valuenow={Math.round(hud.tempC)} aria-label="Cabin temperature">
+            <i className="og-goal" style={{ bottom: `${(TEMP.goalMin / 32) * 100}%`, height: `${((TEMP.goalMax - TEMP.goalMin) / 32) * 100}%` }} title="Goal zone 18–27 °C (ISS)" />
+            <i className="og-fill" style={{ height: `${tempPct}%` }} />
+            <i className="og-bulb" />
+          </div>
+          <b className="og-mval">{Math.round(hud.tempC)}°C</b>
+          <span className="og-mlabel">🌡 {cToF(hud.tempC)}°F</span>
+        </div>
       </section>
 
-      {ended && (
+      {/* ---------- Pop-ups ---------- */}
+      {card && !paused && (
+        <EventCard
+          card={card}
+          onChoose={(id) => {
+            choose(s, card.id, id);
+            play("click");
+            sync();
+          }}
+          onClose={() => {
+            dismissCard(s, card.id);
+            play("click");
+            sync();
+          }}
+        />
+      )}
+      {repairing && !card && (
+        <RepairGame system={repairing} parts={hud.parts} onDone={finishRepair} onCancel={() => setRepairing(null)} />
+      )}
+      {menu === "inventory" && (
+        <InventoryPanel
+          onClose={() => setMenu("none")}
+          data={{
+            name, dest, parts: hud.parts, broken: hud.broken, patched: hud.patched, facts: s.facts,
+            toNextFact: tasksToNextFact(s), objectives: objectives(s), doseMsv: hud.dose, sick: hud.sick, weather, apod,
+          }}
+        />
+      )}
+      {menu === "settings" && <SettingsMenu onClose={() => setMenu("none")} onExit={onBack} exitLabel="EXIT MISSION" />}
+
+      {ended && menu === "none" && (
         <div className="og-end">
-          <div className={`og-endcard og-frame ${game.status}`}>
-            <p className="og-kicker">{game.status === "won" ? "MISSION COMPLETE" : "MISSION FAILED"}</p>
-            <h2>{game.status === "won" ? `Great work, Commander ${name}! 🎉` : "The outpost went dark"}</h2>
-            <p>
-              {game.status === "won"
-                ? `You survived all ${cfg.totalTurns} turns on the ${cfg.name}.`
-                : game.lossReason}
+          <div className={`og-endcard og-frame ${hud.ending}`}>
+            <p className="og-kicker">
+              {hud.ending === "hero" ? "🏆 HERO ENDING" : hud.ending === "close" ? "😅 BARELY MADE IT" : "💀 MISSION FAILED"}
             </p>
+            <h2>
+              {hud.ending === "hero"
+                ? `The rescue ship has landed. Great work, Commander ${name}!`
+                : hud.ending === "close"
+                  ? "That was close!"
+                  : `${dayWord} ${hud.day}: the outpost went dark`}
+            </h2>
+            {hud.ending !== "failed" && (
+              <p>{hud.ending === "hero" ? "All four meters stayed safe until the ship landed." : "One of your meters was almost empty when the ship landed."}</p>
+            )}
+            {hud.failWhy.map((w, i) => (
+              <p key={i} className={i === 0 && hud.ending === "failed" ? "why big" : "why"}>{w}</p>
+            ))}
+            <ul className="og-endstats">
+              <li>🔧 {hud.stats.repairs} repairs · 🩹 {hud.stats.patches} patches</li>
+              <li>⚠ {hud.stats.breakdowns} breakdowns</li>
+              <li>☢ {hud.dose.toFixed(1)} mSv total radiation</li>
+              <li>📘 {hud.facts} facts collected</li>
+            </ul>
+            {hud.ending === "failed" && <p className="why">Failure is a lesson, not a punishment. Real mission planners test ideas again and again.</p>}
             <div className="og-endbtns">
               <button className="og-launch" onClick={onRetry}>▶ TRY AGAIN</button>
               <button className="og-launch ghost" onClick={onBack}>CHANGE DESTINATION</button>

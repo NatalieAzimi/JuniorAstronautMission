@@ -1,37 +1,57 @@
 // =========================================================
-// Top-down outpost world (canvas). No React inside, so the
-// same file runs the Next.js game and the standalone demo.
+// components/game/outpostEngine.ts  (UPDATED)
+// Top-down outpost world (canvas). No React inside.
 //
-// The world is drawn as pixel art at 16px tiles, then scaled
-// up by `zoom` with smoothing off so pixels stay crisp.
+// NEW in this version:
+//   • 7 stations: habitat (heater + storm shelter), greenhouse, air
+//     recycler, battery bank, solar array, comms dish, landing pad
+//   • broken stations flash red with sparks and a ⚠ tag
+//   • smooth real-time day/night, solar-storm / dust / cold effects
+//   • SHIFT = sprint, SPACE / ENTER / F = use (E is the inventory)
+//   • speed: low-quality mode for slow computers (auto-detected),
+//     cached labels and lights, 30 fps cap in low mode
 // =========================================================
 
-export type StationId = "greenhouse" | "conserve" | "recycle"| "comms"| "solar array"| "shield";
+export type StationId = "habitat" | "greenhouse" | "recycle" | "conserve" | "solar" | "comms" | "beacon";
 export type WorldDest = "moon" | "mars";
 export type FloatText = { text: string; color: string };
+// A little cut-scene that plays while a job runs. setProgress() moves it along.
+export type Scene = "harvest" | "shelter" | null;
 export type OutpostStatus = { power: number; oxygen: number; food: number };
+export type Quality = "high" | "low";
+export type StationInfo = { verb: string; broken: boolean; blocked: boolean };
+export type WeatherFx = { storm: 0 | 1 | 2; dust: boolean; cold: boolean };
 
 export type OutpostOptions = {
   dest: WorldDest;
   name: string;
-  zoom?: number; // 0 = pick automatically from screen width
-  showLabels?: boolean;
-  nightDarkness?: number; // 0..1, how dark night gets
-  onNear?: (id: StationId | null) => void; // astronaut walked up to / away from a station
-  onUse?: (id: StationId) => void; // player used a station (E, tap, or arrived via goUse)
+  zoom?: number;
+  quality?: Quality;
+  onNear?: (id: StationId | null) => void;
+  onUse?: (id: StationId) => void;
+  onFrame?: (dt: number) => void; // runs every animation frame (the mission clock uses it)
+  onQuality?: (q: Quality) => void; // engine switched to low quality because frames were slow
 };
 
 export type Outpost = {
   setDest(d: WorldDest): void;
   setName(n: string): void;
-  setNight(night: boolean): void;
+  setDarkness(v: number): void; // 0 = noon, 1 = midnight
   setStatus(s: OutpostStatus): void;
-  setZoom(z: number): void;
-  setShowLabels(on: boolean): void;
-  setNightDarkness(v: number): void;
+  setStations(info: Partial<Record<StationId, StationInfo>>): void;
+  setWeather(w: WeatherFx): void;
   setPaused(p: boolean): void;
-  goUse(id: StationId): void; // walk to a station, then use it
-  feedback(id: StationId, items: FloatText[]): void; // floating "+10 FOOD" text
+  setHidden(h: boolean): void; // astronaut is inside the storm shelter
+  setProgress(p: number | null): void; // task progress ring 0..1
+  setScene(s: Scene): void; // "harvest" = walk into the greenhouse and pick plants, "shelter" = walk into the habitat
+  setCanSprint(on: boolean): void;
+  setSpeedMul(m: number): void;
+  setBeacon(on: boolean): void;
+  setLanding(on: boolean): void;
+  setQuality(q: Quality): void;
+  isSprinting(): boolean;
+  goUse(id: StationId): void;
+  feedback(id: StationId, items: FloatText[]): void;
   destroy(): void;
 };
 
@@ -48,64 +68,23 @@ const R = (x: number, y: number, w: number, h: number): Rect => ({ x: x * T, y: 
 const HAB = R(18, 3, 9, 6);
 const SOLAR = R(4, 3, 9, 5);
 const GREEN = R(5, 15, 10, 7);
-const RECYC = R(31, 15, 6, 5);
+const RECYC = R(31, 14, 6, 5);
 const BATT = R(32, 4, 6, 4);
 const DISH = R(21, 20, 3, 3);
-const SOLIDS = [HAB, SOLAR, GREEN, RECYC, BATT, DISH]; //base, solar panel, greenhouse, recycler, battery bank, comms?
+const PAD = R(34, 21, 8, 6);
+const MAST = { x: PAD.x + PAD.w - 14, y: PAD.y + 4, w: 8, h: 10 };
+const SOLIDS = [HAB, SOLAR, GREEN, RECYC, BATT, DISH, MAST];
 
-const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; label: string; verb: string }> = {
-  greenhouse: {
-    rect: GREEN,
-    spot: { x: GREEN.x + GREEN.w + 10, y: GREEN.y + GREEN.h / 2 + 8 },
-    label: "GREENHOUSE",
-    verb: "RUN GREENHOUSE",
-  },
-  recycle: {
-    rect: RECYC,
-    spot: { x: RECYC.x - 10, y: RECYC.y + RECYC.h / 2 + 8 },
-    label: "AIR RECYCLER",
-    verb: "RECYCLE AIR",
-  },
-  conserve: {
-    rect: BATT,
-    spot: { x: BATT.x + BATT.w / 2, y: BATT.y + BATT.h + 14 },
-    label: "BATTERY BANK",
-    verb: "CONSERVE POWER",
-  },
-  comms: {
-    rect: DISH,
-    spot: { x: DISH.x - 10, y: DISH.y },
-    label: " COMMS · EARTH",
-    verb: "CALL HOME"
-  },
-  "solar array": {
-    rect: SOLAR,
-    spot: {x: SOLAR.x+SOLAR.w+10, y: SOLAR.y+SOLAR.h /2 +8},
-    label: "SOLAR ARRAY",
-    verb: "CLEAN PANELS"
-  },
-  shield: {
-    rect: {
-      x: 0,
-      y: 0,
-      w: 0,
-      h: 0
-    },
-    spot: {
-      x: 0,
-      y: 0
-    },
-    label: "",
-    verb: ""
-  }
+const STATIONS: Record<StationId, { rect: Rect; spot: { x: number; y: number }; label: string }> = {
+  habitat: { rect: HAB, spot: { x: HAB.x + HAB.w / 2, y: HAB.y + HAB.h + 14 }, label: "HABITAT · HEATER & SHELTER" },
+  greenhouse: { rect: GREEN, spot: { x: GREEN.x + GREEN.w + 10, y: GREEN.y + GREEN.h / 2 + 8 }, label: "GREENHOUSE" },
+  recycle: { rect: RECYC, spot: { x: RECYC.x - 10, y: RECYC.y + RECYC.h / 2 + 8 }, label: "AIR RECYCLER" },
+  conserve: { rect: BATT, spot: { x: BATT.x + BATT.w / 2, y: BATT.y + BATT.h + 14 }, label: "BATTERY BANK" },
+  solar: { rect: SOLAR, spot: { x: SOLAR.x + SOLAR.w / 2, y: SOLAR.y + SOLAR.h + 14 }, label: "SOLAR ARRAY" },
+  comms: { rect: DISH, spot: { x: DISH.x + DISH.w / 2, y: DISH.y - 10 }, label: "COMMS DISH · EARTH" },
+  beacon: { rect: PAD, spot: { x: PAD.x + PAD.w / 2 - 12, y: PAD.y + PAD.h / 2 + 4 }, label: "LANDING PAD · BEACON" },
 };
 const STATION_IDS = Object.keys(STATIONS) as StationId[];
-
-const DECOR_LABELS: { rect: Rect; label: string }[] = [
-  { rect: HAB, label: "HABITAT" },
-  //{ rect: SOLAR, label: "SOLAR ARRAY" },
-  //{ rect: DISH, label: "" },
-];
 
 // ---------- Colours ----------
 const PAL = {
@@ -421,55 +400,90 @@ function buildGround(dest: WorldDest): HTMLCanvasElement {
   return c;
 }
 
+// Soft round light, drawn once and reused (much cheaper than a new gradient every frame)
+function makeLightSprite(): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d")!;
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, "rgba(0,0,0,1)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  return c;
+}
+
+// Should we start in low quality? (low memory or few CPU cores)
+export function guessQuality(): Quality {
+  if (typeof navigator === "undefined") return "high";
+  const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  const cores = navigator.hardwareConcurrency || 4;
+  if ((mem !== undefined && mem <= 4) || cores <= 2) return "low";
+  return "high";
+}
+
 // ---------- Engine ----------
 export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): Outpost {
-  // The world is drawn 1:1 into a small buffer (one pixel = one art pixel),
-  // then stretched to the screen in a single step. Text goes on top at full sharpness.
-  const screen = canvas.getContext("2d")!;
+  const screen = canvas.getContext("2d", { alpha: false })!;
   const buf = document.createElement("canvas");
   const ctx = buf.getContext("2d")!;
   const overlay = document.createElement("canvas");
   const octx = overlay.getContext("2d")!;
+  const lightSprite = makeLightSprite();
 
   let dest = opts.dest;
   let name = opts.name;
   let ground = buildGround(dest);
-  let zoomOpt = opts.zoom ?? 0;
+  const zoomOpt = opts.zoom ?? 0;
   let zoom = 3;
-  let showLabels = opts.showLabels ?? true;
-  let nightDarkness = opts.nightDarkness ?? 0.62;
-  let night = false;
+  let quality: Quality = opts.quality ?? "high";
   let dark = 0;
+  let darkGoal = 0;
+  let night = false;
   let paused = false;
+  let hidden = false;
+  let progress: number | null = null;
+  // ----- job scenes (harvest, shelter) -----
+  type ScenePoint = { p: number; x: number; y: number; face?: Facing; pick?: { c: number; at: number; done: boolean } };
+  let scene: Scene = null;
+  let sceneOk = false; // false = the astronaut wasn't by the door, so only the progress ring shows
+  let scenePath: ScenePoint[] = [];
+  let restoreAt = 0; // after walking into the shelter: step back out if the shelter didn't happen
+  const picked = new Map<number, number>(); // greenhouse plant (row*10+col) → time it has regrown
+  let canSprint = true;
+  let speedMul = 1;
+  let beaconOn = false;
+  let landing = false;
+  let landT = 0;
+  let weather: WeatherFx = { storm: 0, dust: false, cold: false };
   let status: OutpostStatus = { power: 70, oxygen: 80, food: 70 };
+  let stationInfo: Partial<Record<StationId, StationInfo>> = {};
 
-  const player = { x: HAB.x + HAB.w / 2, y: HAB.y + HAB.h + 22, facing: "down" as Facing, walk: 0, moving: false };
-  let target: { x: number; y: number } | null = null; // the next waypoint
-  let route: { x: number; y: number }[] = []; // waypoints after this one
+  const player = { x: HAB.x + HAB.w / 2, y: HAB.y + HAB.h + 26, facing: "down" as Facing, walk: 0, moving: false };
+  let target: { x: number; y: number } | null = null;
+  let route: { x: number; y: number }[] = [];
   let lastUse = -1;
   let font = "ui-monospace, Menlo, Consolas, monospace";
   let pendingUse: StationId | null = null;
   let stuckFor = 0;
   let near: StationId | null = null;
+  let sprinting = false;
   let cssW = 0;
   let cssH = 0;
   let dpr = 1;
   let cam = { x: 0, y: 0 };
   let t = 0;
   const keys = new Set<string>();
-  const pulse: Record<StationId, number> = {
-    greenhouse: 0, conserve: 0, recycle: 0,
-    comms: 0,
-    "solar array": 0,
-    shield: 0
-  };
-  const floats: { x: number; y: number; text: string; color: string; age: number; delay: number }[] = [];
+  const pulse: Record<StationId, number> = { habitat: 0, greenhouse: 0, conserve: 0, recycle: 0, solar: 0, comms: 0, beacon: 0 };
+  const floats: { x: number; y: number; text: string; color: string; age: number }[] = [];
   const parts: { x: number; y: number; vx: number; vy: number; life: number; max: number; c: string; s: number }[] = [];
+  const dust: { x: number; y: number; v: number }[] = [];
+  for (let i = 0; i < 70; i++) dust.push({ x: Math.random(), y: Math.random(), v: 0.5 + Math.random() });
 
   // ----- sizing -----
   function resize() {
     const r = canvas.getBoundingClientRect();
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    dpr = quality === "low" ? 1 : Math.min(window.devicePixelRatio || 1, 2);
     cssW = Math.max(1, r.width);
     cssH = Math.max(1, r.height);
     canvas.width = Math.round(cssW * dpr);
@@ -479,9 +493,10 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     buf.height = Math.ceil(cssH / zoom) + 1;
     overlay.width = buf.width;
     overlay.height = buf.height;
-    // Use the page's real font (Next.js gives Geist a generated name)
     font = getComputedStyle(canvas).fontFamily || font;
+    tagCache.clear();
   }
+  const tagCache = new Map<string, HTMLCanvasElement>();
   const ro = new ResizeObserver(resize);
   ro.observe(canvas);
   resize();
@@ -490,21 +505,21 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   const isTyping = (el: EventTarget | null) =>
     el instanceof HTMLElement && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable);
 
+  const MOVE = ["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d"];
   const onKeyDown = (e: KeyboardEvent) => {
     if (isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key.toLowerCase();
-    if (["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d"].includes(k)) {
+    if (k === "shift") {
+      keys.add("shift");
+      return;
+    }
+    if (MOVE.includes(k)) {
       if (k.startsWith("arrow")) e.preventDefault();
-      keys.add(k);
-    } else if ((k === "e" || k === " " || k === "enter") && !(e.target instanceof HTMLButtonElement)) {
-      if (e.repeat) {
-        e.preventDefault(); // holding the key down must not fire turn after turn
-        return;
-      }
-      if (near && !paused) {
-        e.preventDefault();
-        use(near);
-      }
+      if (!paused) keys.add(k);
+    } else if ((k === " " || k === "enter" || k === "f") && !(e.target instanceof HTMLButtonElement)) {
+      e.preventDefault();
+      if (e.repeat) return; // holding the key must not fire job after job
+      if (near && !paused) interact(near);
     }
   };
   const onKeyUp = (e: KeyboardEvent) => keys.delete(e.key.toLowerCase());
@@ -519,7 +534,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     const w = toWorld(e.clientX, e.clientY);
     const hit = STATION_IDS.find((id) => inside(w.x, w.y, STATIONS[id].rect, 6));
     if (hit) {
-      if (near === hit) use(hit);
+      if (near === hit) interact(hit);
       else api.goUse(hit);
       return;
     }
@@ -539,11 +554,11 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
   window.addEventListener("blur", onBlur);
   canvas.addEventListener("pointerdown", onPointerDown);
 
-  function use(id: StationId) {
+  function interact(id: StationId) {
     target = null;
     route = [];
     pendingUse = null;
-    if (t - lastUse < 0.35) return; // ignore accidental double taps
+    if (t - lastUse < 0.35) return;
     lastUse = t;
     faceToward(STATIONS[id].rect);
     opts.onUse?.(id);
@@ -554,20 +569,46 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     player.facing = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : dy > 0 ? "down" : "up";
   }
 
-  // ----- movement with collision -----
+  // Which station is the astronaut standing next to? (closest one wins)
+  function nearest(): StationId | null {
+    let best: StationId | null = null;
+    let bestD = Infinity;
+    for (const id of STATION_IDS) {
+      const r = STATIONS[id].rect;
+      if (!inside(player.x, player.y - 3, r, 24)) continue;
+      const dx = Math.max(r.x - player.x, 0, player.x - (r.x + r.w));
+      const dy = Math.max(r.y - player.y, 0, player.y - (r.y + r.h));
+      const d = Math.hypot(dx, dy);
+      if (d < bestD) {
+        bestD = d;
+        best = id;
+      }
+    }
+    return best;
+  }
 
+  // ----- movement with collision -----
   function step(dt: number) {
+    if (restoreAt && t > restoreAt) {
+      restoreAt = 0;
+      if (!hidden) place(STATIONS.habitat.spot);
+    }
+    if (sceneOk && progress !== null) {
+      runScene(dt);
+      return;
+    }
     const k = keys;
     let dx = (k.has("arrowright") || k.has("d") ? 1 : 0) - (k.has("arrowleft") || k.has("a") ? 1 : 0);
     let dy = (k.has("arrowdown") || k.has("s") ? 1 : 0) - (k.has("arrowup") || k.has("w") ? 1 : 0);
-    const speed = 64;
+    sprinting = k.has("shift") && canSprint && !paused && !hidden;
+    const speed = 64 * speedMul * (sprinting ? 1.75 : 1);
 
-    if (paused) dx = dy = 0;
+    if (paused || hidden) dx = dy = 0;
     if (dx || dy) {
       target = null;
       route = [];
       pendingUse = null;
-    } else if (target && !paused) {
+    } else if (target && !paused && !hidden) {
       let tx = target.x - player.x;
       let ty = target.y - player.y;
       let d = Math.hypot(tx, ty);
@@ -579,7 +620,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       }
       if (d < 1.5) {
         target = null;
-        if (pendingUse) use(pendingUse);
+        if (pendingUse) interact(pendingUse);
       } else {
         dx = tx / d;
         dy = ty / d;
@@ -595,29 +636,139 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
 
     const moved = Math.hypot(player.x - bx, player.y - by);
     player.moving = moved > 0.01;
+    if (!player.moving) sprinting = false;
     if (target) {
       stuckFor = moved < speed * dt * 0.2 ? stuckFor + dt : 0;
       if (stuckFor > 0.35) {
         target = null;
         route = [];
-        // Close enough to the station? Use it anyway.
-        if (pendingUse && inside(player.x, player.y - 3, STATIONS[pendingUse].rect, 26)) use(pendingUse);
+        if (pendingUse && inside(player.x, player.y - 3, STATIONS[pendingUse].rect, 26)) interact(pendingUse);
         pendingUse = null;
         stuckFor = 0;
       }
     }
     if (player.moving) {
-      player.walk += dt * 9;
+      player.walk += dt * (sprinting ? 14 : 9);
       if (Math.abs(mx) > Math.abs(my)) player.facing = mx > 0 ? "right" : "left";
       else if (my) player.facing = my > 0 ? "down" : "up";
+      if (sprinting && Math.random() < dt * 20) {
+        const p = PAL[dest];
+        parts.push({ x: player.x + (Math.random() - 0.5) * 6, y: player.y, vx: (Math.random() - 0.5) * 10, vy: -6, life: 0, max: 0.5, c: p.speck[1], s: 1 });
+      }
     }
 
-    const n = STATION_IDS.find((id) => inside(player.x, player.y - 3, STATIONS[id].rect, 24)) ?? null;
+    const n = hidden ? null : nearest();
     if (n !== near) {
       near = n;
       opts.onNear?.(near);
     }
   }
+
+  // ----- job scenes -----
+  function place(spot: { x: number; y: number }) {
+    player.x = spot.x;
+    player.y = spot.y;
+    player.facing = "down";
+    player.moving = false;
+  }
+
+  // Turn a list of stops into timed points. "wait" = share of the job spent standing still there.
+  function planScene(stops: { x: number; y: number; wait?: number; face?: Facing; pickCol?: number }[]): ScenePoint[] {
+    let dist = 0;
+    for (let i = 1; i < stops.length; i++) dist += Math.hypot(stops[i].x - stops[i - 1].x, stops[i].y - stops[i - 1].y);
+    const waits = stops.reduce((a, st) => a + (st.wait ?? 0), 0);
+    const walk = Math.max(0.05, 1 - waits);
+    const out: ScenePoint[] = [];
+    let p = 0;
+    stops.forEach((st, i) => {
+      if (i > 0) p += (walk * Math.hypot(st.x - stops[i - 1].x, st.y - stops[i - 1].y)) / (dist || 1);
+      out.push({ p, x: st.x, y: st.y });
+      if (st.wait) {
+        const pick = st.pickCol === undefined ? undefined : { c: st.pickCol, at: p + st.wait * 0.6, done: false };
+        p += st.wait;
+        out.push({ p, x: st.x, y: st.y, face: st.face, pick });
+      }
+    });
+    return out;
+  }
+
+  function startScene(sc: Exclude<Scene, null>) {
+    target = null;
+    route = [];
+    pendingUse = null;
+    const from = { x: player.x, y: player.y };
+    if (sc === "harvest") {
+      const { x, y, w } = GREEN;
+      if (player.x < x + w) return; // not on the door side
+      const aisle = y + 51; // walk in through the door, just above the third row of plants
+      const a = 4 + Math.floor(Math.random() * 3); // two plants near the door (columns 2..6)
+      const b = a - 1 - Math.floor(Math.random() * 2);
+      const col = (c: number) => x + 18 + c * 20;
+      scenePath = planScene([
+        from,
+        { x: x + w + 4, y: aisle },
+        { x: col(a), y: aisle, wait: 0.14, face: "down", pickCol: a },
+        { x: col(b), y: aisle, wait: 0.14, face: "down", pickCol: b },
+        { x: x + w + 4, y: aisle },
+        STATIONS.greenhouse.spot,
+      ]);
+    } else {
+      if (player.y < HAB.y + HAB.h) return; // not in front of the habitat
+      const spot = STATIONS.habitat.spot;
+      scenePath = planScene([from, spot, { x: spot.x, y: HAB.y + HAB.h - 3 }]);
+    }
+    sceneOk = true;
+  }
+
+  function endScene(was: Exclude<Scene, null>) {
+    if (was === "harvest") place(STATIONS.greenhouse.spot);
+    else restoreAt = t + 0.5;
+  }
+
+  function runScene(dt: number) {
+    const p = clamp(progress ?? 0, 0, 1);
+    const k = scenePath;
+    let i = 0;
+    while (i < k.length - 2 && p > k[i + 1].p) i++;
+    const a = k[i];
+    const b = k[i + 1] ?? a;
+    const f = b.p > a.p ? clamp((p - a.p) / (b.p - a.p), 0, 1) : 1;
+    const nx = a.x + (b.x - a.x) * f;
+    const ny = a.y + (b.y - a.y) * f;
+    const mx = nx - player.x;
+    const my = ny - player.y;
+    player.moving = Math.hypot(mx, my) > 0.05;
+    if (player.moving) {
+      player.walk += dt * 9;
+      if (Math.abs(mx) > Math.abs(my)) player.facing = mx > 0 ? "right" : "left";
+      else player.facing = my > 0 ? "down" : "up";
+    } else if (b.face) player.facing = b.face;
+    player.x = nx;
+    player.y = ny;
+    sprinting = false;
+    // picking: leaves fly while working, the plant becomes a sprout
+    if (!player.moving && b.pick && !paused && Math.random() < dt * 14) leafPop(b.pick.c, 1);
+    for (const q of k) {
+      if (!q.pick || q.pick.done || p < q.pick.at) continue;
+      q.pick.done = true;
+      picked.set(20 + q.pick.c, t + 8);
+      leafPop(q.pick.c, quality === "low" ? 5 : 10);
+    }
+  }
+
+  function leafPop(c: number, n: number) {
+    const lx = GREEN.x + 18 + c * 20;
+    const ly = GREEN.y + 14 + 2 * 24 - 3;
+    for (let j = 0; j < n; j++) {
+      parts.push({
+        x: lx + (Math.random() - 0.5) * 6, y: ly, vx: (Math.random() - 0.5) * 24, vy: -14 - Math.random() * 20,
+        life: 0, max: 0.5 + Math.random() * 0.4, c: Math.random() < 0.25 ? "#ff6a5a" : "#7dffb0", s: Math.random() < 0.3 ? 2 : 1,
+      });
+    }
+  }
+
+  // The astronaut is inside the greenhouse (drawn under the glass roof)
+  const inGreenhouse = () => scene === "harvest" && sceneOk && progress !== null && player.x < GREEN.x + GREEN.w - 1;
 
   // ----- drawing: buildings -----
   function shadow(r: Rect) {
@@ -719,6 +870,13 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
         const cx = x + 18 + c * 20;
         const cy = y + 14 + r * 24;
         const sway = Math.sin(t * 2 + i++) > 0.6 ? 1 : 0;
+        if ((picked.get(r * 10 + c) ?? 0) > t) {
+          // just picked: a little sprout grows back
+          px(ctx, cx - 1, cy + 2, 2, 3, leafD);
+          px(ctx, cx - 2, cy + 1, 1, 1, leaf);
+          px(ctx, cx + 1, cy + 1, 1, 1, leaf);
+          continue;
+        }
         px(ctx, cx - 1, cy + 2, 2, 3, leafD);
         if (stage >= 1 || stage === 0) {
           px(ctx, cx - 3 + sway, cy, 3, 2, leaf);
@@ -737,6 +895,7 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
         px(ctx, cx - 3 + sway, cy, 1, 1, leafH);
       }
     }
+    if (inGreenhouse()) drawPlayer();
     // glass roof shine
     ctx.fillStyle = "rgba(160,240,255,0.10)";
     ctx.fillRect(x + 5, y + 5, w - 10, h - 10);
@@ -865,77 +1024,172 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     }
   }
 
-  // ----- drawing: screen-space text -----
-  function tag(sx: number, sy: number, text: string, opts2: { bg: string; fg: string; border: string; size: number }) {
-    screen.font = `700 ${opts2.size}px ${font}`;
-    const tw = screen.measureText(text).width;
+  // ----- landing pad + beacon + rescue ship -----
+  function drawPad() {
+    const { x, y, w, h } = PAD;
+    px(ctx, x + 3, y + 4, w, h, "rgba(0,0,0,0.25)");
+    px(ctx, x, y, w, h, "#4a4e5c");
+    px(ctx, x + 2, y + 2, w - 4, h - 4, "#6b7080");
+    // H marking
+    const cx = x + w / 2 - 6;
+    const cy = y + h / 2;
+    px(ctx, cx - 14, cy - 16, 4, 32, "#e3e7ef");
+    px(ctx, cx + 10, cy - 16, 4, 32, "#e3e7ef");
+    px(ctx, cx - 10, cy - 2, 20, 4, "#e3e7ef");
+    // corner lights
+    const on = beaconOn && Math.sin(t * 6) > 0;
+    for (const [lx, ly] of [[x + 4, y + 4], [x + w - 7, y + 4], [x + 4, y + h - 7], [x + w - 7, y + h - 7]])
+      px(ctx, lx, ly, 3, 3, on ? "#7dffb0" : "#2a3a30");
+  }
+  function drawMast() {
+    const { x, y, w, h } = MAST;
+    px(ctx, x + 2, y - 10, 3, h + 10, INK);
+    px(ctx, x, y + h - 2, w, 3, INK);
+    const blink = beaconOn ? (Math.sin(t * 8) > 0 ? "#7dffb0" : "#2a5a40") : "#5a2a2a";
+    px(ctx, x + 1, y - 14, 5, 5, INK);
+    px(ctx, x + 2, y - 13, 3, 3, blink);
+  }
+  function drawShip() {
+    if (!landing) return;
+    const p = Math.min(1, landT / 4);
+    const sx = PAD.x + PAD.w / 2 - 6;
+    const sy = PAD.y + PAD.h / 2 - 160 * (1 - p) * (1 - p);
+    // shadow grows as the ship comes down
+    const sh = Math.round(6 + 10 * p);
+    px(ctx, sx - sh, PAD.y + PAD.h / 2 + 6, sh * 2, 3, "rgba(0,0,0,0.35)");
+    px(ctx, sx - 9, sy - 28, 18, 30, INK);
+    px(ctx, sx - 7, sy - 26, 14, 26, "#f2f4f8");
+    px(ctx, sx - 4, sy - 34, 8, 8, INK);
+    px(ctx, sx - 3, sy - 33, 6, 7, "#f2f4f8");
+    px(ctx, sx - 3, sy - 20, 6, 5, "#3be8ff");
+    px(ctx, sx - 13, sy - 4, 6, 8, INK);
+    px(ctx, sx + 7, sy - 4, 6, 8, INK);
+    if (p < 1) for (let i = 0; i < 3; i++) px(ctx, sx - 4 + i * 3, sy + 2, 2, 4 + ((t * 30 + i * 7) % 6), i % 2 ? AMBER : HOT);
+  }
+
+  // ----- broken stations: red flashing outline + sparks -----
+  function drawBroken() {
+    for (const id of STATION_IDS) {
+      if (!stationInfo[id]?.broken) continue;
+      const r = STATIONS[id].rect;
+      if (Math.sin(t * 6) > -0.2) {
+        ctx.strokeStyle = HOT;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(r.x - 2.5, r.y - 2.5, r.w + 5, r.h + 5);
+      }
+      if (Math.random() < (quality === "low" ? 0.08 : 0.25)) {
+        parts.push({
+          x: r.x + Math.random() * r.w, y: r.y + Math.random() * r.h * 0.5,
+          vx: (Math.random() - 0.5) * 40, vy: -20 - Math.random() * 30, life: 0, max: 0.35, c: Math.random() < 0.5 ? AMBER : "#fff6c0", s: 1,
+        });
+      }
+    }
+  }
+
+  function drawProgress() {
+    if (progress === null || hidden) return;
+    const cx = Math.round(player.x);
+    const cy = Math.round(player.y) - 26;
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(2,6,13,0.8)";
+    ctx.beginPath();
+    ctx.arc(cx + 0.5, cy + 0.5, 6, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = "#7dffb0";
+    ctx.beginPath();
+    ctx.arc(cx + 0.5, cy + 0.5, 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+    ctx.stroke();
+  }
+
+  // ----- screen-space text (labels are drawn once and cached) -----
+  function tagCanvas(text: string, bg: string, fg: string, border: string, size: number) {
+    const key = `${text}|${bg}|${fg}|${border}|${size}|${dpr}`;
+    let c = tagCache.get(key);
+    if (c) return c;
+    if (tagCache.size > 80) tagCache.clear();
+    c = document.createElement("canvas");
+    const g = c.getContext("2d")!;
+    g.font = `700 ${size}px ${font}`;
+    const tw = g.measureText(text).width;
     const padX = 7;
-    const h = opts2.size + 8;
-    const x = Math.round(sx - tw / 2 - padX);
-    const y = Math.round(sy - h);
-    const w = Math.round(tw + padX * 2);
+    const h = size + 8;
+    const w = Math.ceil(tw + padX * 2);
+    c.width = Math.ceil((w + 2) * dpr);
+    c.height = Math.ceil((h + 2) * dpr);
+    g.scale(dpr, dpr);
     const cut = 5;
-    screen.beginPath();
-    screen.moveTo(x + cut, y);
-    screen.lineTo(x + w, y);
-    screen.lineTo(x + w, y + h - cut);
-    screen.lineTo(x + w - cut, y + h);
-    screen.lineTo(x, y + h);
-    screen.lineTo(x, y + cut);
-    screen.closePath();
-    screen.fillStyle = opts2.bg;
-    screen.fill();
-    screen.strokeStyle = opts2.border;
-    screen.lineWidth = 1;
-    screen.stroke();
-    screen.fillStyle = opts2.fg;
-    screen.textAlign = "center";
-    screen.textBaseline = "middle";
-    screen.fillText(text, sx, y + h / 2 + 0.5);
+    g.beginPath();
+    g.moveTo(1 + cut, 1);
+    g.lineTo(1 + w, 1);
+    g.lineTo(1 + w, 1 + h - cut);
+    g.lineTo(1 + w - cut, 1 + h);
+    g.lineTo(1, 1 + h);
+    g.lineTo(1, 1 + cut);
+    g.closePath();
+    g.fillStyle = bg;
+    g.fill();
+    g.strokeStyle = border;
+    g.lineWidth = 1;
+    g.stroke();
+    g.font = `700 ${size}px ${font}`;
+    g.fillStyle = fg;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText(text, 1 + w / 2, 1 + h / 2 + 0.5);
+    tagCache.set(key, c);
+    return c;
+  }
+  function tag(sx: number, sy: number, text: string, o: { bg: string; fg: string; border: string; size: number }) {
+    const c = tagCanvas(text, o.bg, o.fg, o.border, o.size);
+    const w = c.width / dpr;
+    const h = c.height / dpr;
+    screen.drawImage(c, Math.round((sx - w / 2) * dpr), Math.round((sy - h) * dpr));
   }
   const toScreen = (wx: number, wy: number) => ({ x: (wx - cam.x) * zoom, y: (wy - cam.y) * zoom });
 
   function drawScreenText() {
-    screen.setTransform(dpr, 0, 0, dpr, 0, 0);
-    if (showLabels) {
-      const lab = (r: Rect, text: string, hot: boolean) => {
-        const s = toScreen(r.x + r.w / 2, r.y);
-        tag(s.x, s.y - 8, text, {
-          bg: "rgba(2,6,13,0.82)",
-          fg: hot ? AMBER : HUD_C,
-          border: hot ? AMBER : "rgba(59,232,255,0.55)",
-          size: 10,
-        });
-      };
-      for (const d of DECOR_LABELS) lab(d.rect, d.label, false);
-      for (const id of STATION_IDS) lab(STATIONS[id].rect, STATIONS[id].label, near === id);
+    screen.setTransform(1, 0, 0, 1, 0, 0);
+    for (const id of STATION_IDS) {
+      const info = stationInfo[id];
+      const r = STATIONS[id].rect;
+      const s = toScreen(r.x + r.w / 2, r.y);
+      const broken = !!info?.broken;
+      const hot = near === id;
+      tag(s.x, s.y - 8, broken ? `⚠ ${STATIONS[id].label}` : STATIONS[id].label, {
+        bg: broken ? "rgba(60,6,6,0.9)" : "rgba(2,6,13,0.82)",
+        fg: broken ? "#ffb4ad" : hot ? AMBER : HUD_C,
+        border: broken ? HOT : hot ? AMBER : "rgba(59,232,255,0.55)",
+        size: 10,
+      });
     }
-    // name tag over the astronaut
-    const ps = toScreen(player.x, player.y - 17);
-    tag(ps.x, ps.y - 4, name.toUpperCase() || "ASTRONAUT", {
-      bg: "rgba(2,6,13,0.85)",
-      fg: "#ffffff",
-      border: "rgba(59,232,255,0.6)",
-      size: 10,
-    });
-    // use prompt
+    if (hidden) {
+      const hs = toScreen(HAB.x + HAB.w / 2, HAB.y);
+      tag(hs.x, hs.y - 34, `${name.toUpperCase() || "ASTRONAUT"} IS SHELTERING INSIDE…`, {
+        bg: "rgba(4,40,24,0.9)", fg: "#7dffb0", border: "#7dffb0", size: 11,
+      });
+    }
+    if (!hidden) {
+      const ps = toScreen(player.x, player.y - 17);
+      tag(ps.x, ps.y - 4, name.toUpperCase() || "ASTRONAUT", { bg: "rgba(2,6,13,0.85)", fg: "#ffffff", border: "rgba(59,232,255,0.6)", size: 10 });
+    }
     if (near && !paused) {
+      const info = stationInfo[near];
       const r = STATIONS[near].rect;
       const s = toScreen(r.x + r.w / 2, r.y);
-      const bounce = Math.sin(t * 5) * 2;
-      tag(s.x, s.y - 34 + bounce, `[E] ${STATIONS[near].verb}`, {
-        bg: AMBER,
-        fg: "#1b0d00",
-        border: "#ffe0a8",
+      const bounce = Math.round(Math.sin(t * 5) * 2);
+      const blockedNow = !!info?.blocked;
+      tag(s.x, s.y - 34 + bounce, `[SPACE] ${info?.verb ?? "USE"}`, {
+        bg: info?.broken ? HOT : blockedNow ? "#5b6170" : AMBER,
+        fg: info?.broken ? "#fff" : blockedNow ? "#e3e7ef" : "#1b0d00",
+        border: info?.broken ? "#ffd0cc" : blockedNow ? "#9aa0ae" : "#ffe0a8",
         size: 12,
       });
     }
-    // floating results
+    screen.setTransform(dpr, 0, 0, dpr, 0, 0);
     for (const f of floats) {
       if (f.age < 0) continue;
       const s = toScreen(f.x, f.y);
-      const a = clamp(1.6 - f.age, 0, 1);
-      screen.globalAlpha = a;
+      screen.globalAlpha = clamp(1.6 - f.age, 0, 1);
       screen.font = `800 15px ${font}`;
       screen.textAlign = "center";
       screen.textBaseline = "middle";
@@ -949,79 +1203,146 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     }
   }
 
-  // ----- night lighting -----
+  // ----- night lighting (one cached light sprite, no per-frame gradients) -----
   function drawNight() {
     if (dark < 0.01) return;
     const W = overlay.width;
     const H = overlay.height;
     octx.setTransform(1, 0, 0, 1, 0, 0);
     octx.globalCompositeOperation = "source-over";
+    octx.globalAlpha = 1;
     octx.clearRect(0, 0, W, H);
-    octx.fillStyle = `rgba(4,8,38,${dark})`;
+    octx.fillStyle = `rgba(4,8,38,${dark * 0.66})`;
     octx.fillRect(0, 0, W, H);
     octx.globalCompositeOperation = "destination-out";
     const light = (wx: number, wy: number, r: number, power = 1) => {
       const sx = wx - cam.x;
       const sy = wy - cam.y;
-      if (sx < -r || sy < -r || sx > W + r || sy > H + r) return; // off screen
-      const grad = octx.createRadialGradient(sx, sy, 0, sx, sy, r);
-      grad.addColorStop(0, `rgba(0,0,0,${power})`);
-      grad.addColorStop(1, "rgba(0,0,0,0)");
-      octx.fillStyle = grad;
-      octx.fillRect(sx - r, sy - r, r * 2, r * 2);
+      if (sx < -r || sy < -r || sx > W + r || sy > H + r) return;
+      octx.globalAlpha = power;
+      octx.drawImage(lightSprite, sx - r, sy - r, r * 2, r * 2);
     };
-    for (let i = 0; i < 4; i++) light(HAB.x + 24 + i * 32, HAB.y + 26, 34, 0.9);
+    const powered = status.power > 0;
+    if (powered) for (let i = 0; i < 4; i++) light(HAB.x + 24 + i * 32, HAB.y + 26, 34, 0.9);
     light(HAB.x + HAB.w / 2, HAB.y + HAB.h + 6, 34, 0.9);
-    light(player.x, player.y - 8, 52, 1); // helmet lamp
-    light(GREEN.x + GREEN.w / 2, GREEN.y + GREEN.h / 2, 70, 0.75);
+    if (!hidden) light(player.x, player.y - 8, 56, 1);
+    if (powered) light(GREEN.x + GREEN.w / 2, GREEN.y + GREEN.h / 2, 70, 0.75);
     light(RECYC.x + RECYC.w / 2, RECYC.y + RECYC.h / 2, 34, 0.7);
     light(BATT.x + BATT.w / 2, BATT.y + BATT.h / 2, 34, 0.7);
     light(DISH.x + DISH.w / 2, DISH.y + 4, 18, 0.8);
+    if (beaconOn) light(MAST.x + 3, MAST.y - 12, 40, 0.9);
+    octx.globalAlpha = 1;
     octx.globalCompositeOperation = "source-over";
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(overlay, 0, 0);
   }
 
+  // ----- weather on top of the world (screen space of the small buffer) -----
+  function drawWeather(dt: number) {
+    const W = buf.width;
+    const H = buf.height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (weather.dust) {
+      ctx.fillStyle = dest === "mars" ? "rgba(190,100,50,0.22)" : "rgba(150,150,160,0.16)";
+      ctx.fillRect(0, 0, W, H);
+      const n = quality === "low" ? 30 : dust.length;
+      ctx.fillStyle = dest === "mars" ? "#e3a06a" : "#c9cbd4";
+      for (let i = 0; i < n; i++) {
+        const d = dust[i];
+        d.x += dt * 0.12 * d.v;
+        d.y += dt * 0.03 * d.v;
+        if (d.x > 1) d.x -= 1;
+        if (d.y > 1) d.y -= 1;
+        ctx.fillRect((d.x * W) | 0, (d.y * H) | 0, d.v > 1.2 ? 2 : 1, 1);
+      }
+    }
+    if (weather.cold) {
+      ctx.fillStyle = "rgba(120,180,255,0.10)";
+      ctx.fillRect(0, 0, W, H);
+    }
+    if (weather.storm === 1) {
+      ctx.fillStyle = `rgba(255,120,40,${0.05 + 0.05 * Math.sin(t * 4)})`;
+      ctx.fillRect(0, 0, W, H);
+    } else if (weather.storm === 2) {
+      ctx.fillStyle = `rgba(255,40,60,${0.12 + 0.08 * Math.sin(t * 7)})`;
+      ctx.fillRect(0, 0, W, H);
+      // radiation "sparkles": fast particles streaking down
+      ctx.fillStyle = "rgba(255,220,240,0.8)";
+      const n = quality === "low" ? 8 : 24;
+      for (let i = 0; i < n; i++) {
+        const sx = ((i * 97 + t * 260 * (1 + (i % 3))) % (W + 40)) - 20;
+        const sy = ((i * 53 + t * 180 * (1 + (i % 2))) % (H + 40)) - 20;
+        ctx.fillRect(sx | 0, sy | 0, 1, 3);
+      }
+    }
+  }
+
   // ----- particles -----
   function burst(id: StationId) {
     const r = STATIONS[id].rect;
-    const c = id === "greenhouse" ? "#7dffb0" : id === "recycle" ? HUD_C : AMBER;
-    for (let i = 0; i < 22; i++) {
+    const c = id === "greenhouse" ? "#7dffb0" : id === "recycle" ? HUD_C : id === "habitat" ? HOT : AMBER;
+    const n = quality === "low" ? 10 : 22;
+    for (let i = 0; i < n; i++) {
       parts.push({
-        x: r.x + 8 + Math.random() * (r.w - 16),
-        y: r.y + 8 + Math.random() * (r.h - 16),
-        vx: (Math.random() - 0.5) * 20,
-        vy: -18 - Math.random() * 26,
-        life: 0,
-        max: 0.8 + Math.random() * 0.6,
-        c,
-        s: Math.random() < 0.3 ? 2 : 1,
+        x: r.x + 8 + Math.random() * (r.w - 16), y: r.y + 8 + Math.random() * (r.h - 16),
+        vx: (Math.random() - 0.5) * 20, vy: -18 - Math.random() * 26, life: 0, max: 0.8 + Math.random() * 0.6,
+        c, s: Math.random() < 0.3 ? 2 : 1,
       });
     }
   }
 
   // ----- main loop -----
   let last = performance.now();
+  let lastDraw = 0;
   let raf = 0;
+  // frame-time watchdog: switch to low quality if the computer struggles
+  let slowSum = 0;
+  let slowN = 0;
+  let warm = 0;
+
   function frame(now: number) {
-    const dt = Math.min(0.05, (now - last) / 1000);
+    raf = requestAnimationFrame(frame);
+    const rawDt = (now - last) / 1000;
+    const dt = Math.min(0.05, rawDt);
     last = now;
     t += dt;
     step(dt);
+    opts.onFrame?.(dt);
 
-    for (const id of STATION_IDS) pulse[id] = Math.max(0, pulse[id] - dt * 1.4);
-    const goal = night ? nightDarkness : 0;
-    dark += (goal - dark) * Math.min(1, dt * 2.5);
-    for (const f of floats) f.age += dt;
+    // auto quality
+    if (quality === "high" && !paused && document.visibilityState === "visible") {
+      warm += dt;
+      if (warm > 3) {
+        slowSum += rawDt;
+        slowN++;
+        if (slowN >= 120) {
+          if (slowSum / slowN > 0.028) api.setQuality("low");
+          slowSum = 0;
+          slowN = 0;
+        }
+      }
+    }
+
+    // throttle drawing: 30 fps in low quality, ~10 fps behind menus
+    const minGap = paused ? 100 : quality === "low" ? 32 : 0;
+    if (now - lastDraw < minGap) return;
+    const ddt = Math.min(0.1, (now - lastDraw) / 1000 || dt);
+    lastDraw = now;
+
+    for (const id of STATION_IDS) pulse[id] = Math.max(0, pulse[id] - ddt * 1.4);
+    dark += (darkGoal - dark) * Math.min(1, ddt * 2.5);
+    night = dark > 0.5;
+    if (landing) landT += ddt;
+    for (const f of floats) f.age += ddt;
     while (floats.length && floats[0].age > 1.7) floats.shift();
     for (const p of parts) {
-      p.life += dt;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
+      p.life += ddt;
+      p.x += p.vx * ddt;
+      p.y += p.vy * ddt;
     }
     for (let i = parts.length - 1; i >= 0; i--) if (parts[i].life > parts[i].max) parts.splice(i, 1);
+    if (parts.length > 300) parts.splice(0, parts.length - 300);
 
-    // Camera follows the astronaut in whole art pixels; centre the world if the screen is bigger
     const vw = buf.width;
     const vh = buf.height;
     cam = {
@@ -1034,9 +1355,9 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     ctx.fillRect(0, 0, vw, vh);
     ctx.setTransform(1, 0, 0, 1, -cam.x, -cam.y);
     ctx.drawImage(ground, 0, 0);
+    drawPad();
     drawCables();
 
-    // y-sort so the astronaut can walk behind buildings
     const items: { y: number; draw: () => void }[] = [
       { y: HAB.y + HAB.h, draw: drawHabitat },
       { y: SOLAR.y + SOLAR.h, draw: drawSolar },
@@ -1044,9 +1365,12 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       { y: RECYC.y + RECYC.h, draw: drawRecycler },
       { y: BATT.y + BATT.h, draw: drawBattery },
       { y: DISH.y + DISH.h, draw: drawDish },
-      { y: player.y, draw: drawPlayer },
+      { y: MAST.y + MAST.h, draw: drawMast },
     ];
+    if (!hidden && !inGreenhouse()) items.push({ y: player.y, draw: drawPlayer });
     items.sort((a, b) => a.y - b.y).forEach((i) => i.draw());
+    drawShip();
+    drawBroken();
 
     for (const p of parts) {
       ctx.globalAlpha = clamp(1 - p.life / p.max, 0, 1);
@@ -1054,7 +1378,6 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     }
     ctx.globalAlpha = 1;
 
-    // click-to-walk marker (last stop of the route)
     const dest2 = route.length ? route[route.length - 1] : target;
     if (dest2) {
       const rr = Math.round(4 + Math.sin(t * 8));
@@ -1062,42 +1385,28 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
       ctx.lineWidth = 1;
       ctx.strokeRect(Math.round(dest2.x) - rr + 0.5, Math.round(dest2.y) - Math.round(rr / 2) + 0.5, rr * 2, rr);
     }
-
+    drawProgress();
     drawNight();
+    drawWeather(ddt);
 
-    // One stretch to the screen, pixels kept sharp
     screen.setTransform(1, 0, 0, 1, 0, 0);
     screen.imageSmoothingEnabled = false;
     screen.drawImage(buf, 0, 0, vw * zoom * dpr, vh * zoom * dpr);
     drawScreenText();
-    raf = requestAnimationFrame(frame);
   }
   raf = requestAnimationFrame(frame);
+
   const api: Outpost = {
     setDest(d) {
       if (d === dest) return;
       dest = d;
       ground = buildGround(d);
     },
-    setName(n) {
-      name = n;
-    },
-    setNight(n) {
-      night = n;
-    },
-    setStatus(st) {
-      status = st;
-    },
-    setZoom(z) {
-      zoomOpt = z;
-      resize();
-    },
-    setShowLabels(on) {
-      showLabels = on;
-    },
-    setNightDarkness(v) {
-      nightDarkness = clamp(v, 0, 0.9);
-    },
+    setName(n) { name = n; },
+    setDarkness(v) { darkGoal = clamp(v, 0, 1); },
+    setStatus(st) { status = st; },
+    setStations(info) { stationInfo = info; },
+    setWeather(w) { weather = w; },
     setPaused(p) {
       paused = p;
       if (p) {
@@ -1107,19 +1416,49 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
         pendingUse = null;
       }
     },
+    setHidden(h) {
+      if (h === hidden) return;
+      if (h) floats.push({ x: HAB.x + HAB.w / 2, y: HAB.y + HAB.h - 4, text: "SAFE INSIDE", color: "#7dffb0", age: 0 });
+      else {
+        restoreAt = 0;
+        place(STATIONS.habitat.spot); // step out of the habitat door
+      }
+      hidden = h;
+    },
+    setProgress(p) { progress = p; },
+    setScene(sc) {
+      if (sc === scene) return;
+      const was = scene;
+      const ran = sceneOk;
+      scene = sc;
+      sceneOk = false;
+      if (was && ran) endScene(was);
+      if (sc) startScene(sc);
+    },
+    setCanSprint(on) { canSprint = on; },
+    setSpeedMul(m) { speedMul = m; },
+    setBeacon(on) { beaconOn = on; },
+    setLanding(on) {
+      if (on && !landing) landT = 0;
+      landing = on;
+    },
+    setQuality(q) {
+      if (q === quality) return;
+      quality = q;
+      resize();
+      opts.onQuality?.(q);
+    },
+    isSprinting: () => sprinting,
     goUse(id) {
-      if (paused) return;
-      if (near === id) return use(id);
+      if (paused || hidden) return;
+      if (near === id) return interact(id);
       walkTo(STATIONS[id].spot.x, STATIONS[id].spot.y);
       pendingUse = target ? id : null;
     },
     feedback(id, items) {
       pulse[id] = 1;
       burst(id);
-      // results float up from the astronaut's helmet
-      items.forEach((it, i) =>
-        floats.push({ x: player.x, y: player.y, text: it.text, color: it.color, age: -i * 0.45, delay: 0 }),
-      );
+      items.forEach((it, i) => floats.push({ x: player.x, y: player.y, text: it.text, color: it.color, age: -i * 0.45 }));
     },
     destroy() {
       cancelAnimationFrame(raf);
@@ -1131,4 +1470,25 @@ export function createOutpost(canvas: HTMLCanvasElement, opts: OutpostOptions): 
     },
   };
   return api;
+}
+
+// ---------- Big astronaut portrait for the inventory screen ----------
+export function drawPortrait(canvas: HTMLCanvasElement, dest: WorldDest) {
+  const g = canvas.getContext("2d")!;
+  const rows = [...BODY_FRONT, ...LEGS_FRONT[0]];
+  const s = Math.floor(Math.min(canvas.width / 14, canvas.height / 18));
+  const ox = Math.floor((canvas.width - 12 * s) / 2);
+  const oy = Math.floor((canvas.height - rows.length * s) / 2);
+  const colors: Record<string, string> = {
+    K: INK, W: "#f2f4f8", G: "#a9b0c0", V: "#1b2a6b", H: "#7fe0ff", A: PAL[dest].accent, B: "#c9ced9",
+  };
+  g.clearRect(0, 0, canvas.width, canvas.height);
+  g.imageSmoothingEnabled = false;
+  for (let y = 0; y < rows.length; y++)
+    for (let x = 0; x < 12; x++) {
+      const ch = rows[y][x];
+      if (ch === "." || !ch) continue;
+      g.fillStyle = colors[ch];
+      g.fillRect(ox + x * s, oy + y * s, s, s);
+    }
 }
