@@ -43,6 +43,20 @@ export const DUST = {
   stormSolarMultiplier: 0.3, // in a dust storm, solar makes 30% of normal
 };
 
+// Radiation the crew absorbs. Dose is in millisieverts (mSv), the unit NASA uses.
+export const RADIATION = {
+  // REAL: average dose on the surface, per Earth day (24 h).
+  // Mars: Curiosity rover's RAD instrument, 0.64 mSv/day.
+  // Moon: China's Chang'e 4 lander, 1.369 mSv/day (Science Advances, 2020).
+  mSvPerDay: { mars: 0.64, moon: 1.369 } as Record<World, number>,
+  solarStormMultiplier: 12,     // game value: a storm sol is about 12x a normal sol
+  // How much a FULL shielding meter (100) blocks. Game values, but the idea is real:
+  // shielding stops solar storm particles much better than cosmic rays.
+  cosmicBlockedAtFullShield: 0.3, // blocks 30% of everyday cosmic rays
+  stormBlockedAtFullShield: 0.8,  // blocks 80% of solar storm particles
+  stormShieldingWearMultiplier: 5, // game value: storms wear shielding 5x faster
+};
+
 export const CALL_HOUSTON = {
   callMinutes: 10,            // time spent talking / recording
   marsOneWayDelayMinutes: 22, // REAL range: 3–22 min one way (NASA); we use the far end
@@ -63,6 +77,7 @@ export const ACTIONS: Action[] = [
   { id: "buildShield",    label: "Go outside: pile regolith on the roof", station: "airlock", minutes: 180, effects: { shielding: 12, power: -2 } },
   { id: "feedRats",       label: "Feed the lab rats",              station: "lab",        minutes: 15,  effects: { food: -1 } },
   { id: "studyRats",      label: "Study the rats",                 station: "lab",        minutes: 120, effects: { research: 2, power: -2 } },
+  { id: "protectRats",    label: "Move the rats to the shielded room", station: "lab",    minutes: 30,  effects: { power: -1 } },
   // Call Houston's time cost is calculated from CALL_HOUSTON in engine.ts
   { id: "callHouston",    label: "Call Houston",                   station: "comms",      minutes: 0,   effects: {} },
 ];

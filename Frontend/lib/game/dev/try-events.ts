@@ -1,10 +1,10 @@
 // Quick test of the event system with the FAKE test events.
-// Run from the Frontend folder:  npx tsx lib/game/try-events.ts
+// Run from the Frontend folder:  npx tsx lib/game/dev/try-events.ts
 
-import type { GameState } from "./types";
-import { clockText, endDay, newGame } from "./engine";
-import { chooseOption, getActiveEvent, loadEvents, rollEvent } from "./events";
-import testEvents from "./data/events-test.json";
+import type { GameState } from "../types";
+import { clockText, endDay, newGame } from "../engine";
+import { chooseOption, getActiveEvent, loadEvents, rollEvent } from "../events";
+import testEvents from "../data/events-test.json";
 
 const events = loadEvents(testEvents);
 console.log(`Loaded ${events.length} test events.\n`);

@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { startState } from "./gameLogic";
-import type { Dest, GameState } from "./gameLogic";
-import HoustonCall from "./HoustonCall";
-import HomeHud from "./HomeHud";
-import GameScreen from "./GameScreen";
+import { startState } from "@/lib/turn-game/gameLogic";
+import type { Dest, GameState } from "@/lib/turn-game/gameLogic";
+import HoustonCall from "@/components/briefing/HoustonCall";
+import HomeHud from "@/components/home/HomeHud";
+import GameScreen from "@/components/game/GameScreen";
 
 export default function Home() {
   const [screen, setScreen] = useState<"title" | "name" | "call" | "game">("title");
