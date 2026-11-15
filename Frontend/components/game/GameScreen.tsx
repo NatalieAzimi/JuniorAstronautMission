@@ -20,7 +20,7 @@ import type { Dest, PartId, StationId, SystemId, TaskId } from "@/lib/mission/co
 import type { Apod, SpaceWeather } from "@/lib/mission/nasaData";
 import {
   choose, clockLabel, cToF, dayPhase, dismissCard, isBroken, newSim, objectives, outsideTempC,
-  repair, roverFact, snapshot, solarOutput, startTask, stationAction, sunLevel, tasksToNextFact, tick,
+  repair, roverFact, snapshot, wakeUp, solarOutput, startTask, stationAction, sunLevel, tasksToNextFact, tick,
 } from "@/lib/mission/sim";
 import type { Card, Diff, RepairMode, Sim, Toast } from "@/lib/mission/sim";
 import { createOutpost, guessQuality } from "./outpostEngine";
@@ -43,7 +43,7 @@ const SLOTS: { id: StationId; key: string; icon: string; label: string; task: Ta
   { id: "beacon", key: "7", icon: "🚨", label: "BEACON", task: "beacon" },
   { id: "lab", key: "8", icon: "🐀", label: "RAT LAB", task: "feedRats" },
 ];
-const STATIONS: StationId[] = SLOTS.map((s) => s.id);
+const STATIONS: StationId[] = [...SLOTS.map((s) => s.id), "bed"]; // + the bed inside the base (no hotbar slot)
 
 type Props = {
   dest: Dest;
@@ -85,6 +85,7 @@ function readHud(s: Sim) {
     overtime: s.overtime >= 0 ? Math.ceil(s.overtime) : -1,
     beaconOn: s.beaconOn,
     rats: { ...s.rats },
+    sleeping: s.sleeping,
     log: s.log.slice(),
     objectives: objectives(s),
     slowed: radiationSpeed(s.doseMsv) < 0.999,
@@ -172,6 +173,7 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
     e.setBeacon(s.beaconOn);
     e.setPanelDust(1 - s.solarEff);
     e.setRats({ health: s.rats.health, shielded: s.rats.shielded, fed: s.rats.fedToday });
+    e.setSleeping(s.sleeping);
 
     // new toasts → screen + sounds
     const fresh = s.toasts.filter((t) => t.id > seenToast.current);
@@ -296,6 +298,12 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
       if (e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
       const l = live.current;
       if (l.paused || l.card || l.repairing) return;
+      if (sim.sleeping) {
+        // any key wakes you up
+        e.preventDefault();
+        wakeUp(sim);
+        return;
+      }
       const k = e.key.toLowerCase();
       if (l.menu === "none") {
         if (k === "escape") {
@@ -505,6 +513,13 @@ export default function GameScreen({ dest, name, weather, apod, paused = false, 
       </section>
 
       {/* ---------- Pop-ups ---------- */}
+      {hud.sleeping && !card && !ended && (
+        <button className="og-sleep" onClick={() => wakeUp(sim)}>
+          <b>😴 Zzz…</b>
+          <span>You&apos;re asleep. The night is passing fast.</span>
+          <span>Press any key or click to wake up.</span>
+        </button>
+      )}
       {card && !paused && (
         <EventCard
           card={card}

@@ -578,3 +578,24 @@
 @media (prefers-reduced-motion: reduce) {
   .og * { animation: none !important; transition: none !important; }
 }
+
+/* ---------- Sleeping overlay ---------- */
+.og-sleep {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-content: center;
+  gap: 0.5em;
+  text-align: center;
+  background: rgba(4, 8, 38, 0.45);
+  color: #cfe8ff;
+  border: 0;
+  font: inherit;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+.og-sleep b {
+  font-size: 1.6em;
+  color: #fff;
+}
