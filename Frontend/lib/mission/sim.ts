@@ -161,7 +161,7 @@ export function outsideTempC(s: Sim) {
 export function solarOutput(s: Sim) {
   // per second, before costs
   let out = RATES.solarMax[s.dest] * sunLevel(s) * s.solarEff;
-  if (s.broken.solar) out *= 0.5;
+  if (isBroken(s, "solar")) out *= 0.5;
   if (s.elapsed < s.dustUntil) out *= 0.3;
   return out;
 }
@@ -329,7 +329,8 @@ export function stationAction(s: Sim, st: StationId): StationAction {
     return { kind: "task", task: "sleep", verb: TASKS.sleep.verb };
   }
   const sys = st === "beacon" ? null : (st as SystemId);
-  if (sys && s.broken[sys]) return { kind: "repair", system: sys, verb: `REPAIR: ${FAULTS[sys].name.toUpperCase()}` };
+  // a patched system works again (until the patch fails), so only a real breakdown needs repair
+  if (sys && isBroken(s, sys)) return { kind: "repair", system: sys, verb: `REPAIR: ${FAULTS[sys].name.toUpperCase()}` };
 
   const task: TaskId =
     st === "habitat" ? "heater" : st === "solar" ? "clean" : st === "comms" ? "call" : (st as TaskId);
